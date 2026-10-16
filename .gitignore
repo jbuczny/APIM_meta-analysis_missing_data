@@ -1,0 +1,20 @@
+# R / RStudio session files
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj.user
+
+# macOS, Dropbox and Office temporary files
+.DS_Store
+*.nosync/
+*conflicted copy*
+Icon?
+~$*
+
+# Monte Carlo smoke test (quick mode; not used by any table)
+output/mc/quick/
+
+# Logs of command-line runs
+*.log
+logs/

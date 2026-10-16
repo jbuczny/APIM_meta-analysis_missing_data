@@ -1,0 +1,12 @@
+# Text files with LF line endings on every platform
+*.R     text eol=lf
+*.md    text eol=lf
+*.csv   text eol=lf
+*.txt   text eol=lf
+*.Rproj text eol=lf
+# Binary outputs (never diffed or converted)
+*.rds  binary
+*.xlsx binary
+*.docx binary
+*.pdf  binary
+*.png  binary

@@ -1,0 +1,9 @@
+Decision rule (pre-specified): root mean square deviation (RMSD) of the six pooled direct effects
+(rma() RE z, V = ML) from the complete-data results, averaged over both components and the MCAR
+and MAR conditions; basis: Monte Carlo simulation (05, full mode, 500 replications per condition); units: pooled-beta units.
+A difference within 10% of the FIML value is a tie, and a tie goes to mice-PMM.
+
+  mice-PMM : RMSD 0.017 (MNAR 0.021), coverage 0.954, CI width ratio 1.065
+  FIML-TS  : RMSD 0.017 (MNAR 0.021), coverage 0.951, CI width ratio 1.062
+  Difference (PMM - FIML) = -0.000, margin 0.002: equivalent (difference within the margin).
+  Chosen method: mice-PMM (item level, m = 20, Rubin's rules); the m = 20 imputations are aggregated with Rubin's rules within each study before the meta-analysis.

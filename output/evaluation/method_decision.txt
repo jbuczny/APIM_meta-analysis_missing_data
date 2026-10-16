@@ -1,0 +1,12 @@
+Decision rule (pre-specified): root mean square deviation (RMSD) of the six pooled direct effects
+(rma() RE z, V = ML) from the complete-data results, averaged over both components and the MCAR
+and MAR conditions; basis: one realisation of the missing data per condition (04); units: complete-data SE units.
+A difference within 10% of the FIML value is a tie, and a tie goes to mice-PMM.
+
+  mice-PMM : RMSD 0.404 (MNAR 0.496), coverage NA, CI width ratio 1.108
+  FIML-TS  : RMSD 0.365 (MNAR 0.471), coverage NA, CI width ratio 1.108
+  Difference (PMM - FIML) = +0.039, margin 0.037: two-stage FIML closer to the complete-data results.
+  Chosen method: Two-stage FIML (item level, with auxiliaries).
+
+One realisation of the missing data per condition: 05_monte_carlo.R (pilot/full) gives the
+decision that 08 and 09 use when its results are available.
