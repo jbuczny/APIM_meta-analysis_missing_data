@@ -1,11 +1,14 @@
+
+## title: "APIM meta-analysis: individual-level missing and final pipeline"
+## author: "Anonymized"
+## date: "15-10-2026"
+
 # =============================================================================
 # 00_functions.R
 # Shared library for the item-level missing-data pipeline of the APIM
-# meta-analysis (two dyadic studies, N = 130 and N = 174 dyads). Sourced by
-# 01-09. The design follows the demographics/LPA missing-data pipeline
-# (LCA/3 R code/2 Analysis example/3 Demographics missing preregistration),
-# adapted from single-level regression to the Actor-Partner Interdependence
-# Mediation Model (APIMeM) and its meta-analysis.
+# meta-analysis (two dyadic studies, N = 130 and N = 174 dyads). Single-level
+# regression to the Actor-Partner Interdependence Mediation Model (APIMeM) 
+# and its meta-analysis.
 #
 #   1. Design: studies, items, scale scores; the APIMeM functions of
 #      apim_meta_analysis.R (sourced, not copied)
@@ -34,6 +37,7 @@
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
 # Logical switch read from an environment variable (TRUE/FALSE, T/F, 1/0, yes/no, on/off)
+
 env_flag <- function(name, default = TRUE) {
   v <- tolower(trimws(Sys.getenv(name, "")))
   if (!nzchar(v)) return(default)
@@ -48,11 +52,16 @@ env_flag <- function(name, default = TRUE) {
 # change every result, so sourcing this file restores the default. Imputations
 # draw from their own seeded L'Ecuyer-CMRG stream (with_rng(), impute_mice()),
 # which makes them identical with and without parallel workers.
+
 RNG_DEFAULT    <- c("Mersenne-Twister", "Inversion", "Rejection")
+
 RNG_IMPUTATION <- c("L'Ecuyer-CMRG", "Inversion", "Rejection")
+
 if (!identical(RNGkind()[1:3], RNG_DEFAULT)) RNGkind(RNG_DEFAULT[1], RNG_DEFAULT[2], RNG_DEFAULT[3])
+
 # Evaluate expr with generator 'kind' seeded with 'seed'; the caller's generator
 # and its state are restored afterwards
+
 with_rng <- function(kind, seed, expr) {
   old_kind <- RNGkind()
   has <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
@@ -71,6 +80,7 @@ with_rng <- function(kind, seed, expr) {
 # letters), and apim_meta_sensitivity.R uses them as list names. In a non-UTF-8
 # session (e.g. R started with the C locale) such names cannot be represented,
 # so the character type is switched to UTF-8 when possible.
+
 if (!isTRUE(l10n_info()[["UTF-8"]])) {
   for (.loc in c("C.UTF-8", "C.utf8", "en_US.UTF-8", "English_United States.utf8"))
     if (nzchar(suppressWarnings(Sys.setlocale("LC_CTYPE", .loc)))) break
@@ -78,7 +88,7 @@ if (!isTRUE(l10n_info()[["UTF-8"]])) {
     message("Note: R is not running in a UTF-8 locale; labels with special characters may print as <U+....>.")
 }
 
-## ---- 1. Design ---------------------------------------------------------------
+## 1. Design
 
 ## Files. The scripts run from the 'Missing data' folder (APIM/6 Meta-analysis/
 ## Missing data) and use the original scripts and data in place: each input is
@@ -86,24 +96,32 @@ if (!isTRUE(l10n_info()[["UTF-8"]])) {
 ## (apim_meta_analysis.R, toy_study*.csv) and Sensitivity/ (apim_meta_sensitivity.R
 ## and its outputs). Nothing needs to be copied, and the pipeline always runs the
 ## current version of the meta-analysis code.
-INPUT_DIRS  <- c(".", "../Meta-analysis", "../Sensitivity", "Meta-analysis", "Sensitivity")
-SENS_DIRS   <- c("../Sensitivity", ".", "Sensitivity")   # outputs of apim_meta_sensitivity.R
+
+INPUT_DIRS  <- c(".", "../meta-analysis", "../sensitivity", "meta-analysis", "sensitivity")
+
+SENS_DIRS   <- c("../sensitivity", ".", "sensitivity")   # outputs of apim_meta_sensitivity.R
+
 find_input <- function(file, dirs = INPUT_DIRS) {
   if (file.exists(file) || dirname(file) != ".") return(file)
   hit <- file.path(dirs, file)
   hit <- hit[file.exists(hit)]
   if (length(hit)) hit[1] else file        # not found: keep the name for the error message
 }
+
 not_found <- function(file, dirs = INPUT_DIRS)
   paste0("'", basename(file), "' not found in ", paste(dirs, collapse = ", "),
          " (relative to the working directory, which must be the 'Missing data' folder)")
+
 APIM_SCRIPT <- find_input("apim_meta_analysis.R")
 
 STUDIES <- data.frame(key = c("study1", "study2"), study = c("Study 1", "Study 2"),
                       n = c(130L, 174L), toy_file = c("toy_study1.csv", "toy_study2.csv"),
                       stringsAsFactors = FALSE)
+
 ID_VAR      <- "dyad_id"
+
 N_ITEMS     <- 4L
+
 ITEM_VALUES <- 1:5            # Likert response range (imputations are kept inside it)
 
 # The APIMeM is estimated with the functions of apim_meta_analysis.R (sections
@@ -111,6 +129,7 @@ ITEM_VALUES <- 1:5            # Likert response range (imputations are kept insi
 # the 12 standardized paths and their 12 x 12 sampling covariance matrix). They
 # are evaluated in their own environment, exactly as check_recovery.R does, so
 # that this pipeline always uses the same APIMeM code as the meta-analysis.
+
 load_apim_functions <- function(file = APIM_SCRIPT) {
   if (!file.exists(file)) stop(not_found(file), "; or set APIM_SCRIPT to its path.")
   src <- readLines(file, warn = FALSE, encoding = "UTF-8")
@@ -132,31 +151,50 @@ load_apim_functions <- function(file = APIM_SCRIPT) {
   if (length(miss)) stop(file, " does not define: ", paste(miss, collapse = ", "))
   env
 }
+
 APIM <- load_apim_functions()
+
 APIM_CFG <- APIM$CFG                    # constructs, members, item_regex, min_prop_items (.75), omega
+
 APIM_CFG$reliability_supplied <- NULL
+
 VARS    <- APIM$VARS                    # X1 X2 M1 M2 Y1 Y2
+
 PATHS   <- APIM$PATHS                   # 12 paths: label, lhs, rhs, path, type, effect
+
 EFFECTS <- APIM$EFFECTS                 # actor_a partner_a actor_b partner_b actor_c partner_c
 
 CONSTRUCTS <- APIM_CFG$constructs        # X = "x", M = "m", Y = "y"
+
 MEMBERS    <- APIM_CFG$members           # "p1", "p2"
+
 SCALES <- setNames(sprintf("%s_%s", CONSTRUCTS[substr(VARS, 1, 1)],
                            MEMBERS[as.integer(substr(VARS, 2, 2))]), VARS)   # X1 = "x_p1", ...
+
 ITEMS  <- unlist(lapply(SCALES, function(s) sprintf("%s_%d", s, seq_len(N_ITEMS))), use.names = FALSE)
+
 ITEM_VAR       <- setNames(rep(VARS, each = N_ITEMS), ITEMS)           # x_p1_3 -> "X1"
+
 ITEM_SCALE     <- setNames(rep(unname(SCALES), each = N_ITEMS), ITEMS)  # x_p1_3 -> "x_p1"
+
 ITEM_MEMBER    <- setNames(rep(MEMBERS[as.integer(substr(VARS, 2, 2))], each = N_ITEMS), ITEMS)
+
 ITEM_CONSTRUCT <- setNames(rep(tolower(substr(VARS, 1, 1)), each = N_ITEMS), ITEMS)
 
 VAR_LABELS <- setNames(sprintf("%s, %s", APIM_CFG$construct_labels[substr(VARS, 1, 1)],
                                APIM_CFG$member_labels[as.integer(substr(VARS, 2, 2))]), VARS)
+
 EFFECT_LAB <- c(actor_a = "Actor a", partner_a = "Partner a", actor_b = "Actor b",
                 partner_b = "Partner b", actor_c = "Actor c\u{2032}", partner_c = "Partner c\u{2032}")
+
 COMPONENTS <- c("uncorrected", "corrected")
+
 COMP_LAB   <- c(uncorrected = "Uncorrected", corrected = "Corrected for unreliability")
+
 EFF_COLS   <- lapply(setNames(EFFECTS, EFFECTS), function(e) PATHS$label[PATHS$effect == e])
+
 INDIRECT_DEFS <- APIM$indirect_defs(TRUE)  # products of the partner-pooled paths
+
 SPECIFIC_INDIRECT <- setNames(list(c("actor_a", "actor_b"), c("partner_a", "partner_b"),
                                    c("actor_a", "partner_b"), c("partner_a", "actor_b")),
                               c("Actor\u{2013}actor", "Partner\u{2013}partner",
@@ -167,6 +205,7 @@ zs_na <- function(x) { z <- (x - mean(x, na.rm = TRUE)) / stats::sd(x, na.rm = T
 
 # Evaluate expr with R's default generator seeded with 'seed' (whatever the
 # current generator), restoring the caller's generator and state afterwards
+
 with_seed <- function(seed, expr) {
   if (is.null(seed)) return(expr)
   with_rng(RNG_DEFAULT, seed, expr)
@@ -189,6 +228,7 @@ scale_scores <- function(dat, prorate = FALSE, min_prop = APIM_CFG$min_prop_item
 # APIMeM is saturated, so its ML estimates are the regressions implied by the
 # saturated covariance matrix). Used for population values and for checks;
 # the analyses themselves use lavaan.
+
 std_paths_from_cov <- function(S) {
   out <- setNames(numeric(nrow(PATHS)), PATHS$label)
   sds <- sqrt(diag(S))
@@ -201,7 +241,7 @@ std_paths_from_cov <- function(S) {
 # Partner-pooled (simple average) value of each effect type
 effect_means <- function(paths) vapply(EFFECTS, function(e) mean(paths[EFF_COLS[[e]]]), 0)
 
-## ---- 2. Toy population and complete toy data -----------------------------------
+## 2. Toy population and complete toy data
 # Exactly the generator of simulate_toy_data.R (latent APIMeM with known
 # standardized paths, 4 items per construct, 5-point Likert discretisation;
 # Study 2 has lower loadings). The attached toy_study*.csv contain ~1.5% MCAR
@@ -209,23 +249,26 @@ effect_means <- function(paths) vapply(EFFECTS, function(e) mean(paths[EFF_COLS[
 # cells are restored by re-running the generator with the same seed and
 # p_miss = 0: the random-number stream is unchanged (runif() is still drawn),
 # so every observed value is reproduced exactly (checked in 01).
+
 TOY <- list(seed = 20260911, r_x = .30, r_eM = .20, r_eY = .25,
             loadings = list(study1 = c(.80, .75, .78, .72), study2 = c(.62, .58, .66, .55)),
             thresholds = c(-1.6, -0.7, 0.3, 1.2), n = c(study1 = 130L, study2 = 174L))
 
 # Platform independence. simulate_toy_data.R draws the latent scores with
 # MASS::mvrnorm(), which uses the eigenvectors of Sigma_T. LAPACK libraries can
-# return eigenvectors with opposite signs (e.g. R 4.6 on macOS vs. R 4.3 on
+# return eigenvectors with opposite signs (e.g., R 4.6 on macOS vs. R 4.3 on
 # Linux), which changes every draw, so the toy data could not be regenerated
 # everywhere. mvrnorm_ref() is MASS::mvrnorm() with each eigenvector oriented
 # as on the platform that generated the toy data (TOY_EIGEN_REF; only the signs
 # are used), so the draws are the same on every platform (and bit-identical to
 # MASS::mvrnorm() there).
+
 TOY_EIGEN_REF <- matrix(c(
   -0.4029, -0.3701, -0.4228, -0.4228, -0.4048, -0.4234, -0.3564, 0.4752, -0.4552, 0.4772, -0.3780, 0.2633,
    0.5110,  0.5088,  0.0929, -0.0843, -0.4292, -0.5292,  0.0609, -0.5083, 0.4205, 0.4830, -0.5717, 0.0307,
   -0.6247,  0.2400,  0.4827,  0.1907,  0.2100, -0.4885,  0.2355, -0.2498, -0.4423, 0.5628, 0.3715, -0.4814),
   6, 6)
+
 mvrnorm_ref <- function(n, mu, Sigma, ref = TOY_EIGEN_REF, tol = 1e-6) {
   p <- length(mu)
   eS <- eigen(Sigma, symmetric = TRUE); ev <- eS$values; V <- eS$vectors
@@ -236,13 +279,16 @@ mvrnorm_ref <- function(n, mu, Sigma, ref = TOY_EIGEN_REF, tol = 1e-6) {
   X <- drop(mu) + V %*% diag(sqrt(pmax(ev, 0)), p) %*% t(X)
   t(X)
 }
+
 # Fallback for 01 if the generator still does not reproduce the attached files:
 # the values of the 118 cells that simulate_toy_data.R deleted (column-major
 # order of the missing cells of toy_study1.csv and toy_study2.csv) and checksums
 # that identify the attached files and the complete data.
+
 TOY_MISSING_VALUES <- c(
   study1 = "4243334354434242523443442313344232444242522534334",
   study2 = "423243344334244243433341532344343243432115444423533422322114341433332")
+
 TOY_CHECKSUM <- list(observed = c(study1 = 49105441, study2 = 65303981),
                      complete = c(study1 = 49890255, study2 = 66321666))
 toy_checksum <- function(x) {
@@ -260,6 +306,7 @@ toy_B <- function() {
   B["Y2", "X2"] <- .10; B["Y2", "X1"] <- .08    # actor c' (P2), partner c' (X1->Y2)
   B
 }
+
 toy_implied_sigma <- function(B = toy_B(), r_x = TOY$r_x, r_eM = TOY$r_eM, r_eY = TOY$r_eY) {
   Psi <- diag(6); dimnames(Psi) <- dimnames(B)
   Psi["X1", "X2"] <- Psi["X2", "X1"] <- r_x
@@ -274,6 +321,7 @@ toy_implied_sigma <- function(B = toy_B(), r_x = TOY$r_x, r_eM = TOY$r_eM, r_eY 
   stopifnot(max(abs(diag(S) - 1)) < 1e-10)
   S
 }
+
 toy_make_study <- function(n_dyads, loadings, thresholds, Sigma_T, p_miss = 0) {
   Tscores <- mvrnorm_ref(n_dyads, mu = rep(0, 6), Sigma = Sigma_T)
   colnames(Tscores) <- VARS
@@ -290,6 +338,7 @@ toy_make_study <- function(n_dyads, loadings, thresholds, Sigma_T, p_miss = 0) {
   }
   out
 }
+
 regenerate_toy_data <- function(p_miss = 0) {
   set.seed(TOY$seed, kind = RNG_DEFAULT[1], normal.kind = RNG_DEFAULT[2], sample.kind = RNG_DEFAULT[3])
   Sigma_T <- toy_implied_sigma()
@@ -302,6 +351,7 @@ regenerate_toy_data <- function(p_miss = 0) {
 # component; equal in both studies) and, per study, the paths among the scale
 # scores (the estimand of the uncorrected component; attenuated, and more so in
 # Study 2) and the population omega of each scale, from N_big simulated dyads.
+
 toy_population <- function(file = "data/population_values.rds", N_big = 2e5, seed = 99) {
   if (!is.null(file) && file.exists(file)) return(readRDS(file))
   Sigma_T <- toy_implied_sigma()
@@ -331,7 +381,7 @@ toy_population <- function(file = "data/population_values.rds", N_big = 2e5, see
   out
 }
 
-## ---- 3. Auxiliary variables and instruments ---------------------------------------
+## 3. Auxiliary variables and instruments
 # aux_p1, aux_p2  partner-level AUXILIARY variables (continuous): always observed,
 #                 related to the partner's own X, M and Y and (weakly) to the
 #                 other partner's Y. Stand-ins for, e.g., a screening measure,
@@ -351,9 +401,13 @@ toy_population <- function(file = "data/population_values.rds", N_big = 2e5, see
 # 2001). The instruments are used ONLY by Heckman-MI: among respondents an
 # instrument becomes spuriously related to the values (selection on a collider),
 # so a MAR model should not condition on it.
+
 AUX_VARS <- c("aux_p1", "aux_p2", "aux_dyad")
+
 IV_VARS  <- c("iv_p1", "iv_p2")
+
 IV_VAR   <- IV_VARS                    # default 'iv' argument of mice.impute.heckoprob
+
 AUX_COEF <- list(member = c(x = 0.15, m = 0.25, y = 0.40, partner_y = 0.10),
                  dyad   = c(intercept = 0, y = 0.80))
 
@@ -372,7 +426,7 @@ add_aux_iv <- function(dat, b = AUX_COEF) {
   dat[, c(ID_VAR, ITEMS, AUX_VARS, IV_VARS)]
 }
 
-## ---- 4. Item-level amputation ----------------------------------------------------------
+## 4. Item-level amputation
 # Logistic selection model per item j of partner k:  P(M_ij = 1) = logistic(a_j + eta_ij)
 #   MCAR: eta = 0
 #   MAR : eta = mar_direction * strength * z_aux_ik,
@@ -387,9 +441,13 @@ add_aux_iv <- function(dat, b = AUX_COEF) {
 #
 # MNAR direction per construct (+1: higher item values more often missing).
 # Plausible but ASSUMED (e.g. X a stressor, M strain, Y relationship quality):
+
 MNAR_DIRECTION   <- c(x = 1, m = 1, y = -1)
+
 AMPUTE_DEFAULTS  <- list(strength = 1, mar_direction = -1, iv_strength = 1)
+
 MECHANISMS       <- c("MCAR", "MAR", "MNAR")
+
 RATES            <- c(0.05, 0.10, 0.15)
 
 aux_composite <- function(dat, member) zs(zs(dat[[paste0("aux_", member)]]) + zs(dat$aux_dyad))
@@ -427,6 +485,7 @@ ampute_items <- function(dat, mechanism = c("MCAR", "MAR", "MNAR"), prop = 0.10,
 }
 
 # Missingness at the item, scale-score and dyad level
+
 missing_summary <- function(dat) {
   M <- is.na(dat[, ITEMS, drop = FALSE]); r <- rowSums(M)
   sc_any <- sapply(VARS, function(v) rowSums(M[, ITEMS[ITEM_VAR == v], drop = FALSE]) > 0)
@@ -446,6 +505,7 @@ missing_summary <- function(dat) {
 
 # Standardised mean differences (missing minus observed rows) in the deleted
 # value, the partner's auxiliary composite, the instrument and the scale scores
+
 mechanism_check <- function(complete, amputed) {
   smd <- function(x, m) if (any(m) && any(!m)) (mean(x[m]) - mean(x[!m])) / stats::sd(x) else NA
   S <- scale_scores(complete)
@@ -466,6 +526,7 @@ mechanism_check <- function(complete, amputed) {
 # standardised own value, the partner's auxiliary composite and instrument.
 # Defining property of MAR: given the auxiliaries, the value itself does not
 # predict missingness.
+
 mechanism_regression <- function(complete, amputed) {
   st <- do.call(rbind, lapply(ITEMS, function(v) {
     mem <- ITEM_MEMBER[[v]]
@@ -479,7 +540,7 @@ mechanism_regression <- function(complete, amputed) {
   data.frame(term = rownames(cf), log_odds = cf[, 1], se = cf[, 2], row.names = NULL)
 }
 
-## ---- 5. Custom mice methods (from the demographics pipeline) ----------------------------
+## 5. Custom mice methods
 # catx     binary/ordinal variables: logistic regression / proportional-odds model
 #          with parameters drawn from their approximate posterior (proper MI) and
 #          mice's data augmentation against perfect prediction (White, Daniel &
@@ -491,6 +552,7 @@ mechanism_regression <- function(complete, amputed) {
 #          outcome equation with probit selection, joint ML (BHHH), weakly
 #          informative priors; the instrument enters the selection equation only
 #          (Galimard, Chevret, Curis & Resche-Rigon, 2018, for the binary case).
+
 .drop_excluded <- function(y, ry, x, wy, exclude) {
   if (is.null(wy)) wy <- !ry
   x <- as.matrix(x)
@@ -500,6 +562,7 @@ mechanism_regression <- function(complete, amputed) {
   }
   list(y = y, ry = ry, x = x, wy = wy)
 }
+
 .std <- function(x, rows) {
   x <- as.matrix(x)
   if (!ncol(x)) return(x)
@@ -510,6 +573,7 @@ mechanism_regression <- function(complete, amputed) {
   colnames(x) <- make.names(colnames(x), unique = TRUE)
   x
 }
+
 .mvn_draw <- function(mu, V) {
   V <- (V + t(V)) / 2
   if (any(!is.finite(V))) return(mu)
@@ -518,10 +582,12 @@ mechanism_regression <- function(complete, amputed) {
   e <- eigen(V, symmetric = TRUE)
   mu + drop(e$vectors %*% (sqrt(pmax(e$values, 0)) * rnorm(length(mu))))
 }
+
 .inv <- function(H) tryCatch(solve(H), error = function(e) MASS::ginv(H))
 stoch_round <- function(v) { f <- floor(v); f + (runif(length(v)) < (v - f)) }
 
 .CAT_CACHE <- new.env()
+
 mice.impute.catx <- function(y, ry, x, wy = NULL, exclude = NULL, delta = 0, ...) {
   s <- .drop_excluded(y, ry, x, wy, exclude); y <- s$y; ry <- s$ry; wy <- s$wy
   lev <- sort(unique(y[ry])); K <- length(lev)
@@ -580,7 +646,9 @@ Phi2 <- function(a, b, r) {
   if (any(ok)) out[ok] <- pbivnorm::pbivnorm(a[ok], b[ok], r)
   out
 }
+
 RHO_MAX <- 0.95; RHO_PRIOR_SD <- 2; COEF_PRIOR_SD <- 2.5
+
 probit_ridge <- function(W, s, prec = c(0, rep(1 / COEF_PRIOR_SD^2, ncol(W) - 1)), maxit = 50) {
   b <- rep(0, ncol(W))
   for (it in seq_len(maxit)) {
@@ -593,6 +661,7 @@ probit_ridge <- function(W, s, prec = c(0, rep(1 / COEF_PRIOR_SD^2, ncol(W) - 1)
   }
   b
 }
+
 heckoprob_fit <- function(yk, s, X, W, K, start = NULL, maxit = 30, tol = 1e-9) {
   pX <- ncol(X); pW <- ncol(W)
   ib <- seq_len(pX); ic <- pX + seq_len(K - 1); ig <- pX + K - 1 + seq_len(pW)
@@ -670,6 +739,7 @@ heckoprob_fit <- function(yk, s, X, W, K, start = NULL, maxit = 30, tol = 1e-9) 
   list(par = q$th, V = .inv(crossprod(S) + diag(prec)), loglik = -q$nll, converged = conv,
        iter = it, idx = list(b = ib, c = ic, g = ig, r = ir))
 }
+
 heckoprob_probs <- function(par, idx, X, W) {
   b <- par[idx$b]; cc <- par[idx$c]; g <- par[idx$g]
   rho <- RHO_MAX * tanh(par[idx$r])
@@ -680,7 +750,9 @@ heckoprob_probs <- function(par, idx, X, W) {
   P <- pmax(C[, -1, drop = FALSE] - C[, -ncol(C), drop = FALSE], 0)
   P / rowSums(P)
 }
+
 .HECK_CACHE <- new.env()
+
 mice.impute.heckoprob <- function(y, ry, x, wy = NULL, iv = IV_VAR, exclude = NULL, ...) {
   s <- .drop_excluded(y, ry, x, wy, exclude); y <- s$y; ry <- s$ry; wy <- s$wy
   lev <- sort(unique(y[ry])); K <- length(lev)
@@ -697,7 +769,7 @@ mice.impute.heckoprob <- function(y, ry, x, wy = NULL, iv = IV_VAR, exclude = NU
   lev[1L + rowSums(runif(nrow(P)) > t(apply(P, 1, cumsum))[, -K, drop = FALSE])]
 }
 
-## ---- 6. Item-level imputation --------------------------------------------------------
+## 6. Item-level imputation
 # Imputation model of every incomplete item (PRED_SET = "parcel", default):
 #   - the other items of the same scale,
 #   - the scale scores of the five other scales ("parcel summaries"; Eekhout,
@@ -709,8 +781,11 @@ mice.impute.heckoprob <- function(y, ry, x, wy = NULL, iv = IV_VAR, exclude = NU
 # while using ~11 predictors instead of 26 (n = 130; Hardt, Herke & Leonhart,
 # 2012, on too many predictors in small samples). PRED_SET = "items" uses all
 # other items and the auxiliaries instead.
+
 IMPUTATION_METHODS <- c("mice_pmm", "mice_cat", "heckman")
+
 ITEM_METHOD <- c(mice_pmm = "pmm", mice_cat = "catx", heckman = "heckoprob", delta = "pmmx")
+
 PRED_SET <- "parcel"
 
 .mice_setup <- function(dat, item_method, include_iv = FALSE, pred_set = PRED_SET, aux = AUX_VARS) {
@@ -772,6 +847,7 @@ impute_mice <- function(dat, method = c("mice_pmm", "mice_cat", "heckman"), m = 
 # MNAR direction of its construct, stochastically rounded and kept in 1-5. The
 # shift is applied inside the chains, so shifted values also inform the other
 # items. delta = 0 is mice-PMM (same seed -> same imputations).
+
 impute_delta <- function(dat, delta = 0, m = 20, maxit = 20, seed = NULL,
                          direction = MNAR_DIRECTION, pred_set = PRED_SET, aux = AUX_VARS,
                          donors = 5L) {
@@ -788,6 +864,7 @@ impute_delta <- function(dat, delta = 0, m = 20, maxit = 20, seed = NULL,
 
 # Convergence: potential scale reduction factor of the chain means of each
 # imputed item over the second half of the iterations (Gelman & Rubin, 1992)
+
 mice_psrf <- function(mids) {
   cm <- mids$chainMean
   if (is.null(cm) || dim(cm)[2] < 4 || dim(cm)[3] < 2) return(NULL)
@@ -815,7 +892,7 @@ iv_first_stage <- function(dat) {
   }))
 }
 
-## ---- 7. Study-level APIMeM (lavaan) ---------------------------------------------------
+## 7. Study-level APIMeM (lavaan)
 # All methods return the structure of analyse_study() in apim_meta_analysis.R:
 #   list(uncorrected = list(est, V = list(ML, MLR), admissible),
 #        corrected   = list(est, V = list(ML, MLR), admissible), ...)
@@ -827,12 +904,14 @@ iv_first_stage <- function(dat) {
 #     scores with >= 75% observed items (NA otherwise) and computes omega from a
 #     FIML CFA of the items; the APIMeM is then fitted with FIML (missing = "ml")
 #     whenever a scale score is missing. No auxiliaries.
+
 analyse_complete <- function(dat, study, ml_only = FALSE) {
   ps <- APIM$prep_study(dat[, c(ID_VAR, ITEMS)], study, APIM_CFG)
   res <- if (ml_only) analyse_study_ml(ps) else APIM$analyse_study(ps)
   res$rel <- ps$rel; res$n <- ps$n
   res
 }
+
 analyse_prorated <- analyse_complete            # same code, applied to incomplete items
 
 # ML sampling covariances only (2 instead of 4 lavaan fits; for the delta
@@ -865,6 +944,7 @@ analyse_study_ml <- function(ps) {
 # 0.7-1 moved these settings into a sublist (em.h1.args = list(tol, max_iter))
 # and rejects the old top-level em.h1.tol / em.h1.iter.max, so the argument is
 # built for the installed version.
+
 lav_em_h1_args <- function(tol = 1e-9, max_iter = 10000L) {
   o <- names(lavaan::lavOptions())
   if ("em.h1.args" %in% o) return(list(em.h1.args = list(tol = tol, max_iter = max_iter)))
@@ -873,6 +953,7 @@ lav_em_h1_args <- function(tol = 1e-9, max_iter = 10000L) {
   if ("em.h1.iter.max" %in% o) out$em.h1.iter.max <- max_iter
   out
 }
+
 fiml_stage1 <- function(dat, vars) {
   args <- c(list(model = paste(sprintf("%s ~~ %s", vars, vars), collapse = "\n"),
                  data = dat[, vars], missing = "ml", meanstructure = TRUE, int.ov.free = TRUE,
@@ -886,6 +967,7 @@ fiml_stage1 <- function(dat, vars) {
   list(Sigma = as.matrix(h1$cov)[vars, vars], mu = as.numeric(h1$mean[vars]), N = N,
        names = colnames(A), acov = list(ML = Ai / N, MLR = Ai %*% B %*% Ai / N))
 }
+
 fiml_composite_moments <- function(st, items = ITEMS) {
   vech <- function(S) S[lower.tri(S, diag = TRUE)]
   names(st$mu) <- rownames(st$Sigma)
@@ -906,6 +988,7 @@ fiml_composite_moments <- function(st, items = ITEMS) {
   list(Sigma = Sc, mean = mc, N = st$N, L = L,
        Gamma = lapply(st$acov, function(A) st$N * L %*% A %*% t(L)))
 }
+
 omega_from_cov <- function(S, N, type = APIM_CFG$reliability) {
   k <- ncol(S); nm <- paste0("i", seq_len(k)); dimnames(S) <- list(nm, nm)
   alpha <- (k / (k - 1)) * (1 - sum(diag(S)) / sum(S))
@@ -920,6 +1003,7 @@ omega_from_cov <- function(S, N, type = APIM_CFG$reliability) {
   th  <- pe$est[pe$op == "~~" & pe$lhs == pe$rhs & pe$lhs %in% nm]
   sum(lam)^2 / (sum(lam)^2 + sum(th))
 }
+
 fit_apim_moments <- function(Sc, mc, N, Gamma, theta = NULL) {
   syn <- if (is.null(theta)) APIM$apim_syntax("") else
     c(paste0("L", VARS, " =~ 1*", VARS), paste0(VARS, " ~~ ", sprintf("%.12f", theta[VARS]), "*", VARS),
@@ -931,6 +1015,7 @@ fit_apim_moments <- function(Sc, mc, N, Gamma, theta = NULL) {
   if (!lavaan::lavInspect(fit, "converged")) stop("Stage-2 APIMeM did not converge")
   fit
 }
+
 analyse_fiml_ts <- function(dat, study = NULL, aux = AUX_VARS, items = ITEMS, ml_only = FALSE) {
   st <- fiml_stage1(dat, c(items, aux))
   cm <- fiml_composite_moments(st, items)
@@ -949,6 +1034,7 @@ analyse_fiml_ts <- function(dat, study = NULL, aux = AUX_VARS, items = ITEMS, ml
 }
 
 # Delta-method version of stage 2 (no lavaan), used only to check fit_apim_moments()
+
 delta_check_fiml_ts <- function(res) {
   cm <- res$moments; vech_idx <- 7:27
   unvech <- function(v) { S <- matrix(0, 6, 6); S[lower.tri(S, diag = TRUE)] <- v
@@ -970,6 +1056,7 @@ delta_check_fiml_ts <- function(res) {
 #     analyses; V = Ubar + (1 + 1/m) B, with Ubar the mean 12 x 12 sampling
 #     covariance matrix and B the between-imputation covariance matrix of the 12
 #     paths. Per path: Barnard-Rubin df, FMI and lambda (mice::pool.scalar).
+
 pool_rubin_study <- function(res_list, n, k_com = 5) {
   m <- length(res_list); lab <- PATHS$label
   out <- list()
@@ -1001,6 +1088,7 @@ pool_rubin_study <- function(res_list, n, k_com = 5) {
   out$n <- n
   out
 }
+
 analyse_mi <- function(imp_list, study, ml_only = FALSE) {
   fits <- lapply(imp_list, analyse_complete, study = study, ml_only = ml_only)
   pool_rubin_study(fits, n = fits[[1]]$n)
@@ -1014,6 +1102,7 @@ analyse_mi <- function(imp_list, study, ml_only = FALSE) {
 #     and understates the SEs (van Buuren, 2018, sec. 5.1.2). It is included only
 #     to show, on these data, why the m = 20 imputations are aggregated with
 #     Rubin's rules (analyse_mi) instead.
+
 average_imputations <- function(imps) {
   d <- imps[[1]]
   d[, ITEMS] <- Reduce(`+`, lapply(imps, function(x) as.matrix(x[, ITEMS]))) / length(imps)
@@ -1022,7 +1111,9 @@ average_imputations <- function(imps) {
 
 # The methods compared in 04-08. Listwise deletion is not among them: with
 # 5-15% missing values per item, only 1-44% of the dyads have all 24 items.
+
 METHODS_ALL <- c("COM", "PRO_FIML", "FIML_TS", "mice_pmm", "mice_cat", "heckman", "PMM_avg")
+
 METHOD_LABELS <- c(COM = "Complete data (benchmark)",
                    PRO_FIML = "Proration + FIML (scale level; default of apim_meta_analysis.R)",
                    FIML_TS = "Two-stage FIML (item level, with auxiliaries)",
@@ -1048,7 +1139,7 @@ run_method_study <- function(method, dat, study, imps = NULL, ml_only = FALSE) {
     analyse_mi(imps, study, ml_only))
 }
 
-## ---- 8. Meta-analysis with rma() ---------------------------------------------------------
+## 8. Meta-analysis with rma()
 # As in apim_meta_sensitivity.R (the "rma()" family that the sensitivity report
 # compared with rma.mv): per study, the Partner 1 and Partner 2 estimates of each
 # effect type are combined into one GLS composite using the 2 x 2 block of the
@@ -1056,9 +1147,12 @@ run_method_study <- function(method, dat, study, imps = NULL, ml_only = FALSE) {
 # studies with metafor::rma(). PRIMARY: random effects, REML, Wald z test
 # ("rma(): RE (z)"), the specification chosen from the sensitivity report.
 # The common-effect model and the Knapp-Hartung tests are kept for reference.
+
 RMA_METHODS <- c(RE_z = "rma(): RE (z)", CE_z = "rma(): CE (z)",
                  RE_KH = "rma(): RE (KH)", RE_KHadh = "rma(): RE (KH ad hoc)")
+
 PRIMARY_RMA <- "RE_z"
+
 PRIMARY_V   <- "ML"            # as CFG$V_type in apim_meta_sensitivity.R
 
 partner_composites <- function(study_res, cmp, vtype = PRIMARY_V) {
@@ -1072,6 +1166,7 @@ partner_composites <- function(study_res, cmp, vtype = PRIMARY_V) {
     list(y = vapply(res, `[[`, 0, "y"), v = vapply(res, `[[`, 0, "v"), w = lapply(res, `[[`, "w"), V = V)
   })
 }
+
 .rma_re <- function(y, v, test) {
   f <- tryCatch(suppressWarnings(metafor::rma(y, v, method = "REML", test = test,
                                               control = list(stepadj = 0.5, maxiter = 1000))),
@@ -1079,6 +1174,7 @@ partner_composites <- function(study_res, cmp, vtype = PRIMARY_V) {
   if (is.null(f)) f <- metafor::rma(y, v, method = "DL", test = test)     # fallback as in the sensitivity script
   f
 }
+
 rma_fit <- function(y, v, method) switch(method,
   CE_z = metafor::rma(y, v, method = "EE"), RE_z = .rma_re(y, v, "z"),
   RE_KH = .rma_re(y, v, "knha"), RE_KHadh = .rma_re(y, v, "adhoc"),
@@ -1088,6 +1184,7 @@ rma_fit <- function(y, v, method) switch(method,
 # within-study covariances of the composites (random effects of different effect
 # types assumed independent). Its diagonal equals the rma() variances. Needed for
 # Monte Carlo CIs of products of pooled paths.
+
 pooled_cov_re <- function(pc, tau2) {
   Wt <- sapply(EFFECTS, function(e) vapply(pc, function(s) 1 / (s$v[[e]] + tau2[[e]]), 0))
   if (is.null(dim(Wt))) Wt <- matrix(Wt, nrow = 1, dimnames = list(NULL, EFFECTS))
@@ -1113,6 +1210,7 @@ pooled_cov_re <- function(pc, tau2) {
 # factor is unique, whereas the eigenvectors used by MASS::mvrnorm() can come
 # with opposite signs from different LAPACK libraries, which changes every draw.
 # A singular matrix uses its symmetric square root (also sign-free).
+
 rmvn_portable <- function(n, mu, Sigma) {
   p <- length(mu)
   R <- tryCatch(chol(Sigma), error = function(e) NULL)
@@ -1124,6 +1222,7 @@ rmvn_portable <- function(n, mu, Sigma) {
   colnames(out) <- names(mu)
   out
 }
+
 indirect_rma <- function(b, C, sig, n_mc = 2e4, level = .95, seed = 1) {
   draws <- with_seed(seed, tryCatch(rmvn_portable(n_mc, b[EFFECTS], C[EFFECTS, EFFECTS]),
                                     error = function(e) NULL))
@@ -1143,6 +1242,7 @@ indirect_rma <- function(b, C, sig, n_mc = 2e4, level = .95, seed = 1) {
 }
 
 # Pool one set of study-level results (list named by study) for one component
+
 meta_rma <- function(study_res, cmp, vtype = PRIMARY_V, methods = names(RMA_METHODS),
                      level = .95, n_mc = 2e4, mc_seed = 1) {
   pc <- partner_composites(study_res, cmp, vtype)
@@ -1169,6 +1269,7 @@ meta_rma <- function(study_res, cmp, vtype = PRIMARY_V, methods = names(RMA_METH
   }
   out
 }
+
 meta_both <- function(study_res, vtypes = PRIMARY_V, ...) {
   res <- list()
   for (cmp in COMPONENTS) for (vt in vtypes) res[[paste(cmp, vt)]] <- meta_rma(study_res, cmp, vt, ...)
@@ -1180,6 +1281,7 @@ meta_both <- function(study_res, vtypes = PRIMARY_V, ...) {
 # Study-level results in the format of APIM_meta_analysis_results.rds, so that
 # apim_meta_sensitivity.R can be run on missing-data results
 # (CFG_OVERRIDE = list(rds_file = <file>)).
+
 write_sensitivity_input <- function(study_res, file, note = "") {
   rr <- list(config = c(APIM_CFG, list(pool_roles = TRUE, missing_data_note = note)),
              prepped = lapply(study_res, function(r) list(rel = r$rel, n = r$n)),
@@ -1188,7 +1290,7 @@ write_sensitivity_input <- function(study_res, file, note = "") {
   saveRDS(rr, file); invisible(file)
 }
 
-## ---- 9. Performance measures ---------------------------------------------------------------
+## 9. Performance measures
 # Quality of the imputed item values against the deleted true values, per item,
 # averaged over imputations. nrmse: RMSE of the imputed values / SD of the true
 # item; pct_exact: share of imputed values equal to the deleted value;
@@ -1196,7 +1298,9 @@ write_sensitivity_input <- function(study_res, file, note = "") {
 # tvd: total variation distance of the 1-5 distributions; mabias_cor: mean
 # |bias| of the item's correlations with all other items, scale scores and
 # auxiliaries.
+
 num_frame <- function(d) cbind(d[, ITEMS], scale_scores(d), d[, intersect(AUX_VARS, names(d)), drop = FALSE])
+
 imputation_quality <- function(complete, amputed, imp_list) {
   M <- is.na(amputed[, ITEMS, drop = FALSE])
   Xc <- num_frame(complete); Rc <- stats::cor(Xc)
@@ -1245,7 +1349,9 @@ compare_to_com <- function(tab, com, keys) {
 # needs). Safeguard (Monte Carlo only): a method whose 95% CI coverage under
 # MCAR/MAR falls below .925 (Bradley's liberal criterion) is not chosen if the
 # other method's coverage is at least .925.
+
 REL_MARGIN <- 0.10
+
 choose_method <- function(E04 = NULL, MC = NULL, rel_margin = REL_MARGIN) {
   pair <- c("mice_pmm", "FIML_TS")
   crit <- NULL; note <- character(0)
@@ -1321,9 +1427,11 @@ choose_method <- function(E04 = NULL, MC = NULL, rel_margin = REL_MARGIN) {
        verdict = verdict, text = text)
 }
 
-## ---- 10. Power sensitivity: link to apim_meta_sensitivity.R ---------------------------------
+## 10. Power sensitivity: link to apim_meta_sensitivity.R
+
 SENS_SCRIPT <- find_input("apim_meta_sensitivity.R")      # this folder, then ../Sensitivity
 # Method codes of apim_meta_sensitivity.R -> codes used here
+
 RMA_CODES <- c(rma_CE = "CE_z", rma_RE = "RE_z", rma_KH = "RE_KH", rma_KHadh = "RE_KHadh")
 
 # Run apim_meta_sensitivity.R (its sections 0-9: inputs, heterogeneity,
@@ -1341,6 +1449,7 @@ RMA_CODES <- c(rma_CE = "CE_z", rma_RE = "RE_z", rma_KH = "RE_KH", rma_KHadh = "
 # Sections 10-12 (console summary, figures, .docx) are not run. The script draws
 # its random numbers with set.seed(), so the default RNG kind is set for the run
 # and the caller's RNG state is restored afterwards.
+
 run_sensitivity_script <- function(rds_file, override = list(), rma_only = TRUE, file = SENS_SCRIPT,
                                    keep_power = "rma_RE") {
   if (!file.exists(file)) stop(not_found(file))
@@ -1388,9 +1497,11 @@ run_sensitivity_script <- function(rds_file, override = list(), rma_only = TRUE,
 # With inflation that differs between studies and paths it is an approximation;
 # 07 compares it with the exact rerun. c = SE of the common-effect estimate under
 # missing data / its complete-data value (inverse-variance weighted inflation).
+
 rescale_power <- function(theta, power, c, at) stats::approx(theta, power, xout = at / c, rule = 2, ties = max)$y
 
-## ---- 11. Output helpers ----------------------------------------------------------------------
+## 11. Output helpers
+
 write_xlsx_sheets <- function(sheets, file) {
   wb <- openxlsx::createWorkbook()
   hs <- openxlsx::createStyle(textDecoration = "bold")
@@ -1418,7 +1529,9 @@ par_lapply <- function(X, FUN, workers = 1, ...) {
 # 02 were rerun) or with other settings are recomputed instead of being mixed
 # in. The key is the MD5 hash of a text rendering of the inputs, which is the
 # same on every platform for the same values (base R only).
+
 CACHE_VERSION <- "2"                  # increase when a code change alters cached results
+
 cache_key <- function(...) {
   f <- tempfile(fileext = ".txt"); con <- file(f, open = "wb")
   put <- function(x, tag) {
@@ -1436,7 +1549,9 @@ cache_key <- function(...) {
   on.exit(unlink(f))
   unname(tools::md5sum(f))
 }
+
 # Read a cached result if it exists and carries the expected key (NULL otherwise)
+
 read_cached <- function(file, key) {
   if (!file.exists(file)) return(NULL)
   x <- tryCatch(readRDS(file), error = function(e) NULL)
@@ -1449,8 +1564,11 @@ find_sensitivity_file <- function(file, dirs = SENS_DIRS) {
 }
 
 # APA 7 number formatting and tables (as in apim_meta_analysis.R)
+
 APA_FONT <- "Times New Roman"; APA_SIZE <- 10; APA_MAX_WIDTH <- 8.9
+
 MINUS <- "\u{2212}"
+
 fmt <- function(x, d = 2, lead0 = TRUE) {
   s <- formatC(round(x, d), format = "f", digits = d)
   s <- sub("^-(0\\.0+)$", "\\1", s)
@@ -1459,9 +1577,12 @@ fmt <- function(x, d = 2, lead0 = TRUE) {
   s[is.na(x)] <- "\u{2014}"
   s
 }
+
 fmt_p  <- function(p) ifelse(is.na(p), "\u{2014}", ifelse(p < .001, "< .001", fmt(p, 3, lead0 = FALSE)))
+
 fmt_ci <- function(lo, hi, d = 2) ifelse(is.na(lo) | is.na(hi), "\u{2014}",
                                          sprintf("[%s, %s]", fmt(lo, d), fmt(hi, d)))
+
 apa_table <- function(body, labels, spans = list(), group_rows = integer(0), note = NULL,
                       first_col_width = 2.4, col_width = 0.85, font = APA_FONT, size = APA_SIZE) {
   bd <- officer::fp_border(color = "black", width = 1)
@@ -1515,6 +1636,7 @@ apa_table <- function(body, labels, spans = list(), group_rows = integer(0), not
   ft <- flextable::hrule(ft, rule = "atleast", part = "all")
   flextable::set_table_properties(ft, layout = "fixed")
 }
+
 title_par_xml <- function(text, bold = FALSE, italic = FALSE, page_break = FALSE,
                           font = APA_FONT, size_pt = 12) {
   txt <- gsub("&", "&amp;", text, fixed = TRUE)
@@ -1527,6 +1649,7 @@ title_par_xml <- function(text, bold = FALSE, italic = FALSE, page_break = FALSE
   sprintf(paste0('<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
                  '%s<w:r>%s<w:t xml:space="preserve">%s</w:t></w:r></w:p>'), ppr, rpr, txt)
 }
+
 add_apa_table <- function(doc, number, title, ft, new_page = TRUE) {
   doc <- officer::body_add_xml(doc, title_par_xml(paste("Table", number), bold = TRUE, page_break = new_page))
   doc <- officer::body_add_xml(doc, title_par_xml(title, italic = TRUE))
@@ -1534,6 +1657,7 @@ add_apa_table <- function(doc, number, title, ft, new_page = TRUE) {
   if (sum(w) > APA_MAX_WIDTH) ft <- flextable::width(ft, j = seq_along(w), width = w * APA_MAX_WIDTH / sum(w))
   flextable::body_add_flextable(doc, ft, align = "left")
 }
+
 grouped_body <- function(df, group, label_col = 1) {
   out <- NULL; g <- integer(0)
   for (lv in unique(group)) {
@@ -1543,7 +1667,8 @@ grouped_body <- function(df, group, label_col = 1) {
   rownames(out) <- NULL
   list(body = out, group_rows = g)
 }
-new_landscape_doc <- function() {
+
+qnew_landscape_doc <- function() {
   doc <- officer::read_docx()
   officer::body_set_default_section(doc, officer::prop_section(
     page_size = officer::page_size(orient = "landscape"),

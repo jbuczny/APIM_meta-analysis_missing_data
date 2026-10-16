@@ -1,3 +1,8 @@
+
+## title: "APIM meta-analysis (study-level)"
+## author: "Anonymized"
+## date: "15-10-2026"
+
 ###############################################################################
 ##  apim_meta_analysis.R
 ##
@@ -61,19 +66,19 @@
 ##    c1  X1->Y1  actor c'   c2  X2->Y2  actor c'
 ##    c12 X1->Y2  partner c' c21 X2->Y1  partner c'
 ##
-##  Author: <you>          R >= 4.2
 ###############################################################################
-
 
 ## =============================================================================
 ## 0. PACKAGES
 ## =============================================================================
+
 pkgs <- c("lavaan", "metafor", "clubSandwich", "MASS", "flextable", "officer")
 miss_pkgs <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
 if (length(miss_pkgs)) {
   stop("Please install: ", paste(miss_pkgs, collapse = ", "),
        "\n  install.packages(c(\"", paste(miss_pkgs, collapse = "\", \""), "\"))")
 }
+
 suppressPackageStartupMessages({
   library(lavaan)
   library(metafor)
@@ -82,10 +87,10 @@ suppressPackageStartupMessages({
   library(officer)
 })
 
-
 ## =============================================================================
 ## 1. CONFIGURATION  (the only section you should need to edit)
 ## =============================================================================
+
 CFG <- list(
   ## Study files (add rows to add studies; the script is general in k)
   studies = data.frame(
@@ -150,16 +155,21 @@ CFG <- list(
 if (exists("CFG_OVERRIDE", inherits = TRUE)) {
   for (nm in names(CFG_OVERRIDE)) CFG[[nm]] <- CFG_OVERRIDE[[nm]]
 }
+
 stopifnot(CFG$reliability %in% c("omega", "alpha"),
           CFG$primary_V %in% c("ML", "MLR", "BOOT"),
           CFG$primary_model %in% c("multilevel", "common"))
 
 set.seed(CFG$seed)
 
+# CFG_OVERRIDE <- list(reliability = "alpha", primary_V = "MLR")
+# 
+# source("apim_meta_analysis.R")
 
 ## =============================================================================
 ## 2. MODEL DICTIONARY
 ## =============================================================================
+
 VARS <- c("X1", "X2", "M1", "M2", "Y1", "Y2")
 
 PATHS <- data.frame(
@@ -173,9 +183,13 @@ PATHS <- data.frame(
   type  = rep(c("actor", "actor", "partner", "partner"), 3),
   stringsAsFactors = FALSE
 )
+
 PATHS$effect <- paste(PATHS$type, PATHS$path, sep = "_")      # e.g. actor_a
+
 PATHS$from   <- substr(PATHS$rhs, 2, 2)
+
 PATHS$to     <- substr(PATHS$lhs, 2, 2)
+
 PATHS$role   <- sprintf("P%s\u2192P%s", PATHS$from, PATHS$to)  # e.g. P1->P2
 
 EFFECTS <- c("actor_a", "partner_a", "actor_b", "partner_b",
@@ -188,6 +202,7 @@ PATH_GROUP_LABEL <- c(
 )
 
 ## APIMeM syntax. prefix = "" (observed) or "L" (latent, corrected model)
+
 apim_syntax <- function(prefix = "") {
   v <- function(x) paste0(prefix, x)
   regs <- vapply(unique(PATHS$lhs), function(y) {
@@ -203,6 +218,7 @@ apim_syntax <- function(prefix = "") {
 
 ## Indirect and total effects, as expressions of the pooled coefficients.
 ## Decomposition follows Ledermann, Macho & Kenny (2011).
+
 indirect_defs <- function(pool_roles) {
   if (pool_roles) {
     data.frame(
@@ -253,15 +269,15 @@ indirect_defs <- function(pool_roles) {
   }
 }
 
-
 ## =============================================================================
 ## 3. STUDY-LEVEL FUNCTIONS
 ## =============================================================================
 
-## ---- 3a. Reliability ---------------------------------------------------------
+## 3a. Reliability
 ## omega_total for a unit-weighted composite: (sum lambda)^2 /
 ## ((sum lambda)^2 + sum theta), from a one-factor congeneric CFA (FIML).
 ## alpha is a lower bound under congeneric items and therefore OVER-corrects.
+
 reliability_coef <- function(items, type = c("omega", "alpha")) {
   type  <- match.arg(type)
   items <- as.data.frame(items)
@@ -290,7 +306,8 @@ reliability_coef <- function(items, type = c("omega", "alpha")) {
   sum(lam)^2 / (sum(lam)^2 + sum(th))
 }
 
-## ---- 3b. Scale scores + reliabilities for one study --------------------------
+## 3b. Scale scores + reliabilities for one study
+
 prep_study <- function(raw, study, cfg, quiet = FALSE) {
   comp <- as.data.frame(matrix(NA_real_, nrow(raw), 6,
                                dimnames = list(NULL, VARS)))
@@ -333,10 +350,11 @@ prep_study <- function(raw, study, cfg, quiet = FALSE) {
        n = nrow(comp))
 }
 
-## ---- 3c. Fit the APIMeM (uncorrected or corrected) ---------------------------
+## 3c. Fit the APIMeM (uncorrected or corrected)
 ## For the corrected model the error variance of each scale score is fixed at
 ## (1 - rel) * s^2, with s^2 the (FIML) estimate from the saturated
 ## uncorrected model, so both components use the same variance estimate.
+
 fit_apim <- function(comp, rel = NULL, corrected = FALSE, estimator = "ML",
                      s2 = NULL) {
   miss <- if (anyNA(comp)) "ml" else "listwise"
@@ -357,6 +375,7 @@ fit_apim <- function(comp, rel = NULL, corrected = FALSE, estimator = "ML",
 }
 
 ## Standardized paths + full sampling covariance matrix of the 12 paths
+
 extract_paths <- function(fit) {
   ss  <- lavaan::standardizedSolution(fit, type = "std.all")
   est <- setNames(ss$est.std[match(PATHS$label, ss$label)], PATHS$label)
@@ -365,7 +384,8 @@ extract_paths <- function(fit) {
   list(est = est, V = V, admissible = admissible)
 }
 
-## ---- 3d. One study: both components, ML and MLR sampling covariances --------
+## 3d. One study: both components, ML and MLR sampling covariances
+
 analyse_study <- function(ps) {
   f_u_ml  <- fit_apim(ps$comp, estimator = "ML")
   f_u_mlr <- fit_apim(ps$comp, estimator = "MLR")
@@ -487,6 +507,7 @@ robust_table <- function(fit, level) {
 
 ## Heterogeneity: Q_E and multilevel I^2 (Cheung, 2014) using the typical
 ## sampling variance generalized to a full V (Viechtbauer's formula)
+
 heterogeneity <- function(fit) {
   X <- fit$X
   W <- solve(fit$V)
@@ -505,6 +526,7 @@ heterogeneity <- function(fit) {
 }
 
 ## Monte Carlo CIs for functions (products/sums) of the pooled coefficients
+
 mc_functions <- function(b, Vb, defs, n_mc, level) {
   names(b) <- strip_term(names(b))
   dimnames(Vb) <- list(names(b), names(b))
@@ -523,6 +545,7 @@ mc_functions <- function(b, Vb, defs, n_mc, level) {
 }
 
 ## Run everything for one component x V type x model
+
 run_ma <- function(study_res, component, vtype, model, cfg, do_mc = TRUE) {
   md  <- build_ma_data(study_res, component, vtype)
   fit <- fit_ma(md, model, cfg)
@@ -540,10 +563,10 @@ run_ma <- function(study_res, component, vtype, model, cfg, do_mc = TRUE) {
   out
 }
 
-
 ## =============================================================================
 ## 5. RUN
 ## =============================================================================
+
 message("== Reading and preparing studies")
 raw_list <- setNames(lapply(CFG$studies$file, function(f) {
   if (!file.exists(f)) stop("File not found: ", f)
@@ -587,9 +610,11 @@ for (cmp in c("uncorrected", "corrected")) {
     }
   }
 }
+
 PRIM <- lapply(MA, function(x) x[[CFG$primary_V]][[CFG$primary_model]])
 
-## ---- Console summary ----
+## Console summary
+
 for (cmp in names(PRIM)) {
   cat("\n=====", toupper(cmp), "(", CFG$primary_model, ", V =", CFG$primary_V, ") =====\n")
   print(transform(PRIM[[cmp]]$coef[, c("term", "est", "se", "lo", "hi", "p")],
@@ -601,10 +626,10 @@ for (cmp in names(PRIM)) {
                    lo = round(ind$lo, 3), hi = round(ind$hi, 3)), row.names = FALSE)
 }
 
-
 ## =============================================================================
 ## 6. EXPORT RAW RESULTS (CSV + RDS)
 ## =============================================================================
+
 long <- do.call(rbind, lapply(names(MA), function(cmp)
   do.call(rbind, lapply(names(MA[[cmp]]), function(vt)
     do.call(rbind, lapply(names(MA[[cmp]][[vt]]), function(mdl) {
@@ -621,8 +646,10 @@ saveRDS(list(config = CFG, prepped = lapply(prepped, `[`, c("study", "rel", "n")
 ## 7. APA TABLES (flextable + officer)
 ## =============================================================================
 
-## ---- 7a. Number formatting (APA 7) ------------------------------------------
+## 7a. Number formatting (APA 7)
+
 MINUS <- "\u2212"
+
 fmt <- function(x, d = 2, lead0 = TRUE) {
   s <- formatC(round(x, d), format = "f", digits = d)
   s <- sub(paste0("^-(0\\.0+)$"), "\\1", s)             # no "-0.00"
@@ -631,20 +658,23 @@ fmt <- function(x, d = 2, lead0 = TRUE) {
   s[is.na(x)] <- "\u2014"
   s
 }
+
 fmt_p  <- function(p) ifelse(is.na(p), "\u2014",
                              ifelse(p < .001, "< .001", fmt(p, 3, lead0 = FALSE)))
 fmt_ci <- function(lo, hi, d = 2) ifelse(is.na(lo) | is.na(hi), "\u2014",
                                          sprintf("[%s, %s]", fmt(lo, d), fmt(hi, d)))
 fmt_df <- function(x) ifelse(is.na(x), "\u2014", formatC(x, format = "f", digits = 2))
+
 pct <- paste0(round(100 * CFG$level), "%")
 
-## ---- 7b. APA flextable builder ---------------------------------------------
+## 7b. APA flextable builder
 ##  body        data.frame (all character); column names are internal keys
 ##  labels      display labels for the bottom header row (same length)
 ##  spans       list of spanning header rows, top to bottom; each is a named
 ##              integer vector of column widths (names = labels, "" = blank)
 ##  group_rows  body row indices that are group headings (merged + italic)
 ##  note        character note (printed after an italic "Note.")
+
 apa_table <- function(body, labels, spans = list(), group_rows = integer(0),
                       note = NULL, first_col_width = 2.4, col_width = 0.85,
                       font = CFG$table_font, size = CFG$table_size) {
@@ -708,6 +738,7 @@ apa_table <- function(body, labels, spans = list(), group_rows = integer(0),
 ## title can carry "page break before" + "keep with next": each table starts
 ## on a new page without ever producing blank pages, and the title never
 ## separates from its table)
+
 title_par_xml <- function(text, bold = FALSE, italic = FALSE, page_break = FALSE,
                           font = CFG$table_font, size_pt = 12) {
   txt <- gsub("&", "&amp;", text, fixed = TRUE)
@@ -724,6 +755,7 @@ title_par_xml <- function(text, bold = FALSE, italic = FALSE, page_break = FALSE
 }
 
 ## Add "Table n" (bold) + italic title + table to the document
+
 add_apa_table <- function(doc, number, title, ft, new_page = TRUE) {
   doc <- officer::body_add_xml(doc, title_par_xml(paste("Table", number), bold = TRUE,
                                                   page_break = new_page))
@@ -736,6 +768,7 @@ add_apa_table <- function(doc, number, title, ft, new_page = TRUE) {
 }
 
 ## Row labels for effects
+
 effect_row_label <- function(term) {
   if (CFG$pool_roles) {
     ifelse(grepl("^actor", term), "Actor", "Partner")
@@ -751,6 +784,7 @@ term_path <- function(term) {
 }
 
 ## Insert group heading rows (by path) into a body data.frame
+
 with_groups <- function(body, group_key, group_labels) {
   out <- NULL; grp <- integer(0)
   for (g in unique(group_key)) {
@@ -764,8 +798,11 @@ with_groups <- function(body, group_key, group_labels) {
 }
 
 study_names <- names(study_res)
+
 n_by_study  <- vapply(prepped, `[[`, numeric(1), "n")
+
 rel_name    <- if (CFG$reliability == "omega") "\u03c9" else "\u03b1"
+
 var_label   <- function(v) sprintf("%s, %s", CFG$construct_labels[[substr(v, 1, 1)]],
                                    CFG$member_labels[as.integer(substr(v, 2, 2))])
 df_range <- function(obj) {
@@ -773,11 +810,13 @@ df_range <- function(obj) {
   if (is.null(d) || all(is.na(d))) return("not available")
   sprintf("%s\u2013%s", fmt_df(min(d, na.rm = TRUE)), fmt_df(max(d, na.rm = TRUE)))
 }
+
 model_txt <- if (CFG$primary_model == "multilevel") {
   if (CFG$pool_roles)
     "a multilevel random-effects model (REML) in which the Partner 1 and Partner 2 estimates of each effect are nested within studies"
   else "a multivariate random-effects model (REML)"
 } else "a common-effect (fixed-effect) multivariate model"
+
 V_txt <- c(ML = "normal-theory (ML)", MLR = "robust (MLR sandwich)",
            BOOT = "bootstrap")[[CFG$primary_V]]
 num_word <- function(n) if (n >= 1 && n <= 9) c("one", "two", "three", "four",
@@ -787,18 +826,21 @@ k_txt <- sprintf("Pooled across %s studies (%s dyads)", num_word(k_studies),
                  else paste(n_by_study, collapse = ", "))
 
 doc <- officer::read_docx()
+
 doc <- officer::body_set_default_section(
   doc, officer::prop_section(
     page_size = officer::page_size(orient = "landscape"),
     page_margins = officer::page_mar(top = 1, bottom = 1, left = 1, right = 1)))
 
-## ---- Table 1: descriptives & reliabilities ---------------------------------
+## Table 1: descriptives & reliabilities
 ## Wide (studies side by side) for up to 3 studies, long (stacked) otherwise
+
 rel_source_txt <- paste0(
   if (CFG$reliability == "omega")
     "McDonald's omega total from a one-factor congeneric CFA (FIML)"
   else "Cronbach's alpha",
   if (!is.null(CFG$reliability_supplied)) ", or as supplied by the study" else "")
+
 note1 <- sprintf(paste0("Scale scores are item means. %s = %s. Reliabilities were ",
                         "used to fix the error variance of each scale score in the ",
                         "corrected (latent) APIMeM."), rel_name, rel_source_txt)
@@ -808,6 +850,7 @@ desc_block <- function(s) {
              SD  = fmt(apply(cm, 2, stats::sd, na.rm = TRUE)),
              rel = fmt(prepped[[s]]$rel, 2, lead0 = FALSE), stringsAsFactors = FALSE)
 }
+
 if (k_studies <= 3) {
   t1 <- data.frame(var = vapply(VARS, var_label, character(1)), stringsAsFactors = FALSE)
   for (s in study_names) t1 <- cbind(t1, setNames(desc_block(s), paste0(make.names(s), c("_M", "_SD", "_rel"))))
@@ -830,16 +873,22 @@ if (k_studies <= 3) {
                    note = note1, first_col_width = 2.8, col_width = 0.8)
   hdr_row <- 1
 }
+
 ft1 <- flextable::italic(ft1, i = hdr_row, j = which(grepl("(^|_)(M|SD)$", names(t1))),
                          part = "header")
+
 doc <- add_apa_table(doc, 1, "Descriptive Statistics and Reliability Coefficients by Study", ft1,
                      new_page = FALSE)
 
-## ---- Table 2: pooled direct effects -----------------------------------------
+## Table 2: pooled direct effects
+
 cr2_df_all <- unlist(lapply(PRIM, function(o) o$coef$df_cr2))
+
 show_cr2   <- length(cr2_df_all) > 0 && !anyNA(cr2_df_all) &&
               all(cr2_df_all >= CFG$cr2_min_df)
+
 direct_cols <- c("b", "se", "ci", "p", if (show_cr2) "cr2")
+
 make_direct_body <- function(obj) {
   ct  <- obj$coef
   out <- data.frame(b = fmt(ct$est), se = fmt(ct$se), ci = fmt_ci(ct$lo, ct$hi),
@@ -847,7 +896,9 @@ make_direct_body <- function(obj) {
   if (show_cr2) out$cr2 <- fmt_ci(ct$lo_cr2, ct$hi_cr2)
   out
 }
+
 terms <- PRIM$uncorrected$coef$term
+
 t2 <- cbind(data.frame(eff = effect_row_label(terms), stringsAsFactors = FALSE),
             setNames(make_direct_body(PRIM$uncorrected), paste0("u_", direct_cols)),
             setNames(make_direct_body(PRIM$corrected),   paste0("c_", direct_cols)))
@@ -863,6 +914,7 @@ cr2_note <- if (show_cr2) {
                  "below %d, where robust tests are unreliable (Tipton, 2015)."),
           df_range(PRIM$uncorrected), df_range(PRIM$corrected), CFG$cr2_min_df)
 }
+
 ft2 <- apa_table(
   g2$body,
   labels = c("Effect", rep(c("\u03b2", "SE", paste(pct, "CI"), "p",
@@ -883,14 +935,19 @@ ft2 <- flextable::width(ft2, j = ci_cols, width = if (show_cr2) 1.0 else 1.1)
 ft2 <- flextable::italic(ft2, i = 2, j = c(3, 5, 3 + nd, 5 + nd), part = "header")
 doc <- add_apa_table(doc, 2, "Pooled Direct Effects of the Actor\u2013Partner Interdependence Mediation Model", ft2)
 
-## ---- Table 3: pooled indirect and total effects ----------------------------
+## Table 3: pooled indirect and total effects
+
 iu <- PRIM$uncorrected$indirect; ic <- PRIM$corrected$indirect
+
 t3 <- data.frame(eff  = iu$label,
                  u_e  = fmt(iu$est, 3), u_ci = fmt_ci(iu$lo, iu$hi, 3),
                  c_e  = fmt(ic$est, 3), c_ci = fmt_ci(ic$lo, ic$hi, 3),
                  stringsAsFactors = FALSE)
+
 grp_lab <- setNames(as.list(unique(iu$group)), unique(iu$group))
+
 g3 <- with_groups(t3, iu$group, grp_lab)
+
 ft3 <- apa_table(
   g3$body,
   labels = c("Effect", rep(c("Estimate", paste(pct, "MC CI")), 2)),
@@ -906,10 +963,13 @@ ft3 <- apa_table(
     "Sensitivity analyses are in Table 6."),
     k_txt, format(CFG$n_mc, big.mark = ",", scientific = FALSE)),
   first_col_width = 3.7, col_width = 1.3)
+
 ft3 <- flextable::width(ft3, j = c(2, 4), width = 0.9)
+
 doc <- add_apa_table(doc, 3, "Pooled Indirect and Total Effects", ft3)
 
-## ---- Table 4: heterogeneity -------------------------------------------------
+## Table 4: heterogeneity
+
 het_row <- function(cmp, mdl) {
   h <- MA[[cmp]][[CFG$primary_V]][[mdl]]$het
   data.frame(
@@ -923,8 +983,10 @@ het_row <- function(cmp, mdl) {
     I2r  = ifelse(is.na(h$I2_role),  "\u2014", sprintf("%.1f", h$I2_role)),
     stringsAsFactors = FALSE)
 }
+
 t4 <- do.call(rbind, lapply(c("uncorrected", "corrected"), function(cmp)
   rbind(het_row(cmp, "multilevel"), het_row(cmp, "common"))))
+
 ft4 <- apa_table(
   t4,
   labels = c("Model", "k", "Q\u2091 (df)", "p", "\u03c4\u00b2 (study)",
@@ -937,17 +999,23 @@ ft4 <- apa_table(
     "(Cheung, 2014). With %s studies, \u03c4\u00b2 is very imprecisely estimated."),
     k_studies, CFG$re_struct, num_word(k_studies)),
   first_col_width = 2.6, col_width = 0.95)
+
 ft4 <- flextable::italic(ft4, j = c(2, 4), part = "header")
+
 doc <- add_apa_table(doc, 4, "Heterogeneity of the Pooled APIMeM Paths", ft4)
 
 ## ---- Tables 5 and 6: sensitivity (V type x pooling model) -----------------
 ## Columns: pooling model (spanning) x sampling covariance type; primary first.
 ## Rows: grouped by component.
+
 sens_cols <- expand.grid(vt = V_TYPES, model = MODELS, stringsAsFactors = FALSE)
+
 sens_cols <- sens_cols[order(sens_cols$model != CFG$primary_model,
                              sens_cols$vt != CFG$primary_V), ]
 nsc <- nrow(sens_cols)
+
 model_lab <- c(multilevel = "Multilevel model", common = "Common-effect model")
+
 sens_spans <- c(" " = 1L, setNames(as.integer(table(factor(sens_cols$model,
                                      levels = unique(sens_cols$model)))),
                                    model_lab[unique(sens_cols$model)]))
@@ -967,6 +1035,7 @@ effect_full_label <- function(term) {
     sprintf("%s %s", ifelse(grepl("^actor", term), "Actor", "Partner"), sym)
   } else effect_row_label(term)
 }
+
 comp_lab <- c(uncorrected = "Uncorrected", corrected = "Corrected for unreliability")
 
 sens_table <- function(get_cells, row_labels) {
@@ -987,18 +1056,21 @@ g5 <- sens_table(function(cmp, vt, mdl) {
   ct <- MA[[cmp]][[vt]][[mdl]]$coef
   sprintf("%s %s", fmt(ct$est), fmt_ci(ct$lo, ct$hi))
 }, effect_full_label(terms))
+
 ft5 <- apa_table(
   g5$body, labels = c("Effect", sens_cols$vt), spans = list(sens_spans),
   group_rows = g5$group_rows,
   note = sprintf("Cells: \u03b2 [%s CI]. %s", pct, V_note),
   first_col_width = if (nsc > 4) 1.5 else 2.2, col_width = min(1.65, 7.3 / nsc),
   size = if (nsc > 4) CFG$table_size - 1 else CFG$table_size)
+
 doc <- add_apa_table(doc, 5, "Sensitivity of the Pooled Direct Effects to the Sampling Covariance Matrix and Pooling Model", ft5)
 
 g6 <- sens_table(function(cmp, vt, mdl) {
   ind <- MA[[cmp]][[vt]][[mdl]]$indirect
   sprintf("%s %s", fmt(ind$est, 3), fmt_ci(ind$lo, ind$hi, 3))
 }, iu$short)
+
 ft6 <- apa_table(
   g6$body, labels = c("Effect", sens_cols$vt), spans = list(sens_spans),
   group_rows = g6$group_rows,
@@ -1007,7 +1079,7 @@ ft6 <- apa_table(
   size = if (nsc > 4) CFG$table_size - 1 else CFG$table_size)
 doc <- add_apa_table(doc, 6, "Sensitivity of the Pooled Indirect and Total Effects", ft6)
 
-## ---- Table S1: study-level estimates ----------------------------------------
+## Table S1: study-level estimates
 ## Wide for up to 2 studies, long (stacked by study) otherwise
 path_lab <- sprintf("%s: %s \u2192 %s", ifelse(PATHS$type == "actor", "Actor", "Partner"),
                     PATHS$rhs, PATHS$lhs)
@@ -1021,10 +1093,12 @@ est_block <- function(s) {
   }
   as.data.frame(out, stringsAsFactors = FALSE)
 }
+
 noteS1 <- paste0("Standardized estimates from each study's APIMeM. SE = normal-theory ",
                  "(delta-method) standard error; SE\u1d63 = robust (MLR) standard error. ",
                  "The full covariance matrices of these estimates (not only the SEs) ",
                  "enter the meta-analysis.")
+
 if (k_studies <= 2) {
   tS1 <- data.frame(eff = path_lab, stringsAsFactors = FALSE)
   for (s in study_names) {
@@ -1056,10 +1130,13 @@ if (k_studies <= 2) {
     group_rows = gS1, note = noteS1, first_col_width = 2.2, col_width = 0.8)
   ftS1 <- flextable::italic(ftS1, i = 2, j = c(3, 4, 6, 7), part = "header")
 }
+
 doc <- add_apa_table(doc, "S1", "Study-Level Standardized APIMeM Paths", ftS1)
 
-## ---- Table S2: correlation matrices -----------------------------------------
+## Table S2: correlation matrices
+
 tS2 <- NULL; grpS2 <- integer(0)
+
 for (s in study_names) {
   R  <- stats::cor(prepped[[s]]$comp, use = "pairwise.complete.obs")
   rl <- prepped[[s]]$rel
@@ -1075,15 +1152,20 @@ for (s in study_names) {
   tS2 <- rbind(tS2, head_row, blk)
   grpS2 <- c(grpS2, nrow(tS2) - 6)
 }
+
 rownames(tS2) <- NULL
+
 ftS2 <- apa_table(
   tS2, labels = c("Variable", as.character(1:6)), group_rows = grpS2,
   note = sprintf(paste0("Pairwise correlations between scale scores; reliability ",
                         "coefficients (%s) on the diagonal in parentheses. These ",
                         "matrices allow re-analysis with two-stage MASEM."), rel_name),
   first_col_width = 2.8, col_width = 0.7)
+
 doc <- add_apa_table(doc, "S2", "Correlations Among Scale Scores by Study", ftS2)
 
 print(doc, target = CFG$out_docx)
+
 message("\n== Done. Tables written to ", CFG$out_docx,
         "\n   Numeric results: ", CFG$out_csv, " and ", CFG$out_rds)
+

@@ -1,3 +1,8 @@
+
+## title: "APIM meta-analysis: individual-level missing and final pipeline"
+## author: "Anonymized"
+## date: "15-10-2026"
+
 # =============================================================================
 # 09_final_meta_analysis.R
 # The APIMeM meta-analysis of the two studies WITH item-level missing data:
@@ -39,27 +44,45 @@
 
 source("00_functions.R")
 
-## ---- 0. Settings ---------------------------------------------------------------------
+## 0. Settings
+
 INPUT_FILES <- c("Study 1" = file.path("data", "amputed", "study1_MAR_10pct.csv"),    # <- your files
                  "Study 2" = file.path("data", "amputed", "study2_MAR_10pct.csv"))
+
 AUX     <- c("aux_p1", "aux_p2", "aux_dyad")    # <- your auxiliary variables (complete)
+
 f_dec   <- file.path("output", "evaluation", "04_evaluation_results.rds")
+
 f_mc    <- file.path("output", "mc", c("full", "pilot"), "mc_summary.rds")
+
 f_mc    <- f_mc[file.exists(f_mc)][1]
+
 DEC     <- choose_method(if (file.exists(f_dec)) readRDS(f_dec), if (!is.na(f_mc)) readRDS(f_mc))
+
 METHOD  <- Sys.getenv("FINAL_METHOD", DEC$chosen)          # or set it: "mice_pmm" / "FIML_TS"
+
 M       <- 20
+
 MAXIT   <- 20
+
 SEED    <- 20261017
+
 RUN_DELTA <- env_flag("RUN_DELTA", TRUE)    # MNAR tipping-point analysis (~2 min per delta)
+
 DELTAS  <- c(-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1)
+
 RUN_POWER_SENSITIVITY <- env_flag("RUN_POWER", TRUE)  # apim_meta_sensitivity.R rerun (~5 min)
+
 POWER_R <- 1000                             # replications for that rerun
+
 OUT <- file.path("output", "final"); dir.create(OUT, FALSE, TRUE)
+
 stopifnot(METHOD %in% c("mice_pmm", "mice_cat", "FIML_TS", "PRO_FIML"), length(INPUT_FILES) >= 2)
+
 cat("Method:", METHOD_LABELS[[METHOD]], sprintf("(decision basis: %s)\n", DEC$basis))
 
-## ---- 1. Data and missingness --------------------------------------------------------------
+## 1. Data and missingness
+
 dat <- lapply(INPUT_FILES, function(f) {
   d <- utils::read.csv(f, stringsAsFactors = FALSE, na.strings = c("", "NA"))
   if (!ID_VAR %in% names(d)) d[[ID_VAR]] <- sprintf("D%03d", seq_len(nrow(d)))   # no dyad identifier: row numbers
@@ -70,16 +93,20 @@ dat <- lapply(INPUT_FILES, function(f) {
   if (length(AUX) && anyNA(d[, AUX])) stop(f, ": the auxiliaries must be complete (impute them first or drop them)")
   d
 })
+
 miss <- do.call(rbind, lapply(names(dat), function(s) {
   ms <- missing_summary(dat[[s]])
   data.frame(study = s, n_dyads = nrow(dat[[s]]), ms[ms$variable %in% c(
     "ALL item cells", "Dyads with any missing item", "Dyads complete (all 24 items)",
     "Scale scores with any missing item", "Scale scores not computable by proration (< 75% items)"), ])
 }))
+
 print(miss, row.names = FALSE)
 
-## ---- 2-3. Missing-data handling and study-level APIMeM ----------------------------------------
+## 2-3. Missing-data handling and study-level APIMeM
+
 study_res <- list(); imps_all <- list(); log <- list()
+
 for (i in seq_along(dat)) {
   s <- names(dat)[i]; t0 <- proc.time()[["elapsed"]]
   if (METHOD %in% c("mice_pmm", "mice_cat")) {
@@ -102,17 +129,25 @@ for (i in seq_along(dat)) {
   }
   cat(sprintf("  %s done (%.0f s)\n", s, log[[s]]$seconds))
 }
+
 log <- do.call(rbind, log)
 
-## ---- 4. Meta-analysis with rma() --------------------------------------------------------------
+## 4. Meta-analysis with rma()
+
 MA <- meta_both(study_res, c("ML", "MLR"), n_mc = 1e5, mc_seed = SEED)
+
 f_sens_in <- file.path(OUT, "APIM_meta_analysis_results_MI.rds")
+
 write_sensitivity_input(study_res, f_sens_in, note = METHOD_LABELS[[METHOD]])
+
 prim_d <- MA$direct[MA$direct$method == PRIMARY_RMA & MA$direct$V_type == PRIMARY_V, ]
+
 cat("\nPooled direct effects (rma() RE, REML, z; V = ML):\n")
+
 print(transform(prim_d[, c("component", "effect", "est", "se", "lo", "hi", "p", "tau2")],
                 est = round(est, 3), se = round(se, 3), lo = round(lo, 3), hi = round(hi, 3),
                 p = signif(p, 3), tau2 = signif(tau2, 3)), row.names = FALSE)
+
 study_tab <- do.call(rbind, lapply(names(study_res), function(s) do.call(rbind, lapply(COMPONENTS, function(cmp) {
   r <- study_res[[s]][[cmp]]
   data.frame(study = s, component = cmp, path = PATHS$label, effect = PATHS$effect, est = r$est[PATHS$label],
@@ -120,8 +155,10 @@ study_tab <- do.call(rbind, lapply(names(study_res), function(s) do.call(rbind, 
              fmi = if (!is.null(r$mi)) r$mi$ML$fmi else NA_real_, row.names = NULL)
 }))))
 
-## ---- 5. Delta-adjusted MNAR tipping points (mice-PMM) -------------------------------------------
+## 5. Delta-adjusted MNAR tipping points (mice-PMM)
+
 DELTA <- NULL
+
 if (RUN_DELTA) {
   cat("\nDelta-adjusted tipping-point analysis ...\n")
   DELTA <- do.call(rbind, lapply(DELTAS, function(dl) {
@@ -133,8 +170,10 @@ if (RUN_DELTA) {
   }))
 }
 
-## ---- 6. Optional: apim_meta_sensitivity.R with the missing-data sampling covariances -----------
+## 6. Optional: apim_meta_sensitivity.R with the missing-data sampling covariances
+
 POWER <- NULL
+
 if (RUN_POWER_SENSITIVITY) {
   cat("\nPower sensitivity (apim_meta_sensitivity.R, rma() models) with the missing-data covariances ...\n")
   f_res <- find_sensitivity_file("APIM_sensitivity_results.rds")
@@ -145,20 +184,28 @@ if (RUN_POWER_SENSITIVITY) {
   cat(sprintf("  done (%.0f s)\n", POWER$seconds))
 }
 
-## ---- 7. Tables ----------------------------------------------------------------------------------
+## 7. Tables
+
 sheets <- list(missingness = miss, log = log, pooled_direct = MA$direct, pooled_indirect = MA$indirect,
                study_level = study_tab)
+
 if (!is.null(DELTA)) sheets$delta_adjusted <- DELTA
+
 if (!is.null(POWER)) { sheets$power_mde <- POWER$summary; sheets$power_indirect_mde <- POWER$indirect_min
                        sheets$power_critical <- POWER$observed }
+
 sheets$method_decision <- data.frame(text = DEC$text)
+
 write_xlsx_sheets(sheets, file.path(OUT, "09_final_results.xlsx"))
+
 saveRDS(list(method = METHOD, decision = DEC, files = INPUT_FILES, aux = AUX, missingness = miss,
              study_results = study_res, meta = MA, delta = DELTA, power = POWER, log = log),
         file.path(OUT, "09_final_results.rds"))
 
 pct <- "95%"
+
 k_txt <- sprintf("Pooled across %d studies (%s dyads)", length(dat), paste(vapply(dat, nrow, 0L), collapse = " and "))
+
 meth_txt <- switch(METHOD,
   mice_pmm = sprintf(paste0("Item-level missing values were multiply imputed with predictive mean matching (mice; m = %d; ",
                             "predictors: the other items of the scale, the five other scale scores and %s); the APIMeM was ",
@@ -167,9 +214,11 @@ meth_txt <- switch(METHOD,
   mice_cat = sprintf("Item-level multiple imputation with proportional-odds models (m = %d), pooled within each study with Rubin's rules.", M),
   FIML_TS  = "Item-level missing values were handled with two-stage FIML (saturated item-level model with the auxiliaries, then the APIMeM on the implied scale-score moments).",
   PRO_FIML = "Scale scores were prorated (\u{2265} 75% of items) and the APIMeM was fitted with FIML.")
+
 doc <- new_landscape_doc()
 
 ## Table 1: missingness and reliability
+
 t1 <- do.call(rbind, lapply(names(dat), function(s) {
   ms <- missing_summary(dat[[s]]); sc_any <- is.na(scale_scores(dat[[s]]))
   data.frame(v = VAR_LABELS[VARS],
@@ -177,18 +226,23 @@ t1 <- do.call(rbind, lapply(names(dat), function(s) {
              scale = sprintf("%.1f", 100 * colMeans(sc_any)),
              rel = fmt(study_res[[s]]$rel[VARS], 2, lead0 = FALSE), stringsAsFactors = FALSE)
 }))
+
 g1 <- grouped_body(t1, rep(sprintf("%s (%d dyads; %.1f%% of item values missing)", names(dat), vapply(dat, nrow, 0L),
                                    vapply(dat, function(d) 100 * mean(is.na(d[, ITEMS])), 0)), each = 6))
+
 ft1 <- apa_table(g1$body, labels = c("Scale score", "Items missing (%)", "Scale scores incomplete (%)", "\u{03c9}"),
                  group_rows = g1$group_rows,
                  note = paste0("Scale scores incomplete = at least one of the four items missing. \u{03c9} = McDonald's omega ",
                                "total (one-factor CFA), averaged over the completed datasets for multiple imputation; used ",
                                "for the correction for unreliability. ", meth_txt),
                  first_col_width = 3.0, col_width = 1.3)
+
 doc <- add_apa_table(doc, 1, "Item-Level Missing Data and Reliability by Study", ft1, new_page = FALSE)
 
 ## Table 2: pooled direct effects
+
 t2 <- NULL
+
 for (e in EFFECTS) {
   row <- data.frame(e = EFFECT_LAB[[e]], stringsAsFactors = FALSE)
   for (cmp in COMPONENTS) {
@@ -199,7 +253,9 @@ for (e in EFFECTS) {
   }
   t2 <- rbind(t2, row)
 }
+
 g2 <- grouped_body(t2, APIM$PATH_GROUP_LABEL[sub("^(actor|partner)_", "", EFFECTS)])
+
 ft2 <- apa_table(g2$body, labels = c("Effect", rep(c("\u{03b2}", "SE", paste(pct, "CI"), "p", "\u{03c4}\u{00b2}"), 2)),
   spans = list(c(" " = 1L, "Uncorrected" = 5L, "Corrected for unreliability" = 5L)), group_rows = g2$group_rows,
   note = paste0(k_txt, ". \u{03b2} = pooled standardized APIMeM path: per study, the Partner 1 and Partner 2 estimates of ",
@@ -208,12 +264,17 @@ ft2 <- apa_table(g2$body, labels = c("Effect", rep(c("\u{03b2}", "SE", paste(pct
                 " With two studies \u{03c4}\u{00b2} is very imprecise; results of the common-effect and Knapp\u{2013}Hartung ",
                 "versions are in the .xlsx file."),
   first_col_width = 1.2, col_width = 0.66)
+
 ft2 <- flextable::width(ft2, j = c(4, 9), width = 1.05)
+
 doc <- add_apa_table(doc, 2, "Pooled Direct Effects of the APIMeM With Item-Level Missing Data", ft2)
 
 ## Table 3: indirect and total effects
+
 ind <- MA$indirect[MA$indirect$V_type == PRIMARY_V, ]
+
 t3 <- NULL
+
 for (lab in unique(ind$label)) {
   row <- data.frame(e = lab, stringsAsFactors = FALSE)
   for (cmp in COMPONENTS) {
@@ -223,18 +284,24 @@ for (lab in unique(ind$label)) {
   }
   t3 <- rbind(t3, row)
 }
+
 g3 <- grouped_body(t3, ind$group[match(t3$e, ind$label)])
+
 ft3 <- apa_table(g3$body, labels = c("Effect", rep(c("Estimate", paste(pct, "MC CI"), "Joint sig."), 2)),
   spans = list(c(" " = 1L, "Uncorrected" = 3L, "Corrected for unreliability" = 3L)), group_rows = g3$group_rows,
   note = paste0(k_txt, ". Products and sums of the pooled random-effects paths (Ledermann et al., 2011). MC CI = Monte ",
                 "Carlo CI (100,000 draws from the pooled paths and their plug-in covariance matrix). Joint sig. = both ",
                 "component paths significant (p < .05)."),
   first_col_width = 3.4, col_width = 0.9)
+
 ft3 <- flextable::width(ft3, j = c(3, 6), width = 1.3)            # room for the CIs
+
 doc <- add_apa_table(doc, 3, "Pooled Indirect and Total Effects", ft3)
 
 ## Table 4: study-level paths
+
 t4 <- NULL
+
 for (s in names(study_res)) {
   blk <- data.frame(p = sprintf("%s: %s \u{2192} %s", ifelse(PATHS$type == "actor", "Actor", "Partner"), PATHS$rhs, PATHS$lhs),
                     stringsAsFactors = FALSE)
@@ -245,7 +312,9 @@ for (s in names(study_res)) {
   }
   t4 <- rbind(t4, blk)
 }
+
 g4 <- grouped_body(t4, rep(sprintf("%s (%d dyads)", names(study_res), vapply(dat, nrow, 0L)), each = 12))
+
 ft4 <- apa_table(g4$body, labels = c("Path", rep(c("\u{03b2}", "SE", "FMI"), 2)),
   spans = list(c(" " = 1L, "Uncorrected" = 3L, "Corrected for unreliability" = 3L)), group_rows = g4$group_rows,
   note = paste0("Standardized APIMeM paths of each study after the missing-data handling. SE = normal-theory (ML) ",
@@ -253,9 +322,11 @@ ft4 <- apa_table(g4$body, labels = c("Path", rep(c("\u{03b2}", "SE", "FMI"), 2))
                 "(Barnard\u{2013}Rubin; multiple imputation only). The full 12 \u{00d7} 12 covariance matrices enter the ",
                 "meta-analysis."),
   first_col_width = 2.0, col_width = 0.8, size = 9)
+
 doc <- add_apa_table(doc, 4, "Study-Level Standardized APIMeM Paths With Item-Level Missing Data", ft4)
 
 ## Table 5: delta adjustment
+
 if (!is.null(DELTA)) {
   t5 <- NULL
   for (cmp in COMPONENTS) for (e in EFFECTS) {
@@ -277,7 +348,9 @@ if (!is.null(DELTA)) {
     first_col_width = 1.3, col_width = 0.85)
   doc <- add_apa_table(doc, 5, "Sensitivity of the Pooled Direct Effects to Departures From MAR (Delta Adjustment)", ft5)
 }
+
 ## Table 6: minimum detectable effects with the missing data (power sensitivity)
+
 if (!is.null(POWER)) {
   sm <- POWER$summary[as.character(POWER$summary$method) == RMA_METHODS[[PRIMARY_RMA]] &
                         as.character(POWER$summary$k) == as.character(POWER$summary$k[1]), ]
@@ -300,5 +373,7 @@ if (!is.null(POWER)) {
     first_col_width = 2.0, col_width = 1.1)
   doc <- add_apa_table(doc, 6, "Minimum Detectable Pooled Direct Effects With the Missing Data", ft6)
 }
+
 print(doc, target = file.path(OUT, "09_final_tables.docx"))
+
 cat("\nWritten to", OUT, ":", paste(list.files(OUT), collapse = ", "), "\n")

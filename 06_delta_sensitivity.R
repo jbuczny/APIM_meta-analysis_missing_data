@@ -1,3 +1,8 @@
+
+## title: "APIM meta-analysis: individual-level missing and final pipeline"
+## author: "Anonymized"
+## date: "15-10-2026"
+
 # =============================================================================
 # 06_delta_sensitivity.R
 # Delta-adjustment (tipping-point) sensitivity analysis for MNAR, with the
@@ -40,41 +45,62 @@
 source("00_functions.R")
 
 ## ---- 0. Settings --------------------------------------------------------------------
-MODE    <- Sys.getenv("SENS_MODE", "full")
+
+MODE <- Sys.getenv("SENS_MODE", "full")
+
 CFG <- switch(MODE,
   quick = list(DELTAS = c(0, 0.5), M = 5, maxit = 5, conditions = c("MAR_15pct", "MNAR_15pct")),
   full  = list(DELTAS = c(-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1), M = 20, maxit = 20, conditions = NULL),
   stop("SENS_MODE must be quick or full"))
+
 WORKERS <- as.integer(Sys.getenv("WORKERS", "15"))
+
 SEED_03 <- 20261013                    # seeds of 03: delta = 0 reproduces mice-PMM
+
 OUT <- file.path("output", "sensitivity", MODE); RAW <- file.path(OUT, "raw")
+
 N_MC <- 2e4; MC_SEED <- 20261014
+
 dir.create(RAW, FALSE, TRUE)
 
 A <- readRDS(file.path("data", "amputed", "amputed_datasets.rds"))
+
 grid <- A$grid
+
 conditions <- CFG$conditions %||% unique(grid$condition)
+
 study_label <- setNames(STUDIES$study, STUDIES$key)
+
 imp_seed <- function(i) SEED_03 + 1000 * i + match("mice_pmm", IMPUTATION_METHODS)   # as in 03
+
 E04 <- if (file.exists(f <- file.path("output", "evaluation", "04_evaluation_results.rds"))) readRDS(f) else NULL
+
 pmm04 <- function(ds) file.path("output", "evaluation", "raw", sprintf("%s__mice_pmm.rds", ds))
 
-## ---- 1. Study-level analyses per delta (cached) ----------------------------------------
+## 1. Study-level analyses per delta (cached)
+
 jobs <- expand.grid(delta = CFG$DELTAS, dataset = grid$dataset[grid$condition %in% conditions],
                     stringsAsFactors = FALSE)
+
 raw_file <- function(ds, dl) file.path(RAW, sprintf("%s__delta%+.2f.rds", ds, dl))
+
 # Cache key: amputed data, delta and the imputation settings, seed and generator
+
 jobs$key <- vapply(seq_len(nrow(jobs)), function(r) {
   ds <- jobs$dataset[r]; i <- match(ds, grid$dataset)
   cache_key("delta", jobs$delta[r], CFG$M, CFG$maxit, 5L, PRED_SET, MNAR_DIRECTION, imp_seed(i),
             RNG_IMPUTATION, A$amputed[[ds]][, c(ID_VAR, ITEMS, AUX_VARS, IV_VARS)])
 }, "")
+
 # delta = 0 with the settings of 03 is mice-PMM of 03 (same seed and generator),
 # so 04's results are reused when they were computed from these imputations
+
 I03 <- if (file.exists(f <- file.path("data", "imputed", "imputations_all.rds"))) readRDS(f) else NULL
+
 same_as_03 <- MODE == "full" && !is.null(I03) && identical(as.integer(I03$M), as.integer(CFG$M)) &&
   isTRUE(I03$settings$maxit_pmm == CFG$maxit) && isTRUE(I03$seed == SEED_03) &&
   isTRUE(I03$settings$donors == 5L) && identical(I03$settings$pred_set, PRED_SET)
+
 res04 <- function(ds) {
   imps <- I03$imputations[[ds]]$mice_pmm
   if (!same_as_03 || is.null(imps)) return(NULL)
@@ -84,11 +110,15 @@ res04 <- function(ds) {
   r$completed_means <- colMeans(do.call(rbind, lapply(imps, function(d) colMeans(d[, ITEMS]))))
   r
 }
+
 reuse <- jobs$delta == 0 & vapply(jobs$dataset, function(ds) !is.null(res04(ds)), TRUE)
+
 todo <- which(!reuse & !vapply(seq_len(nrow(jobs)), function(r)
   !is.null(read_cached(raw_file(jobs$dataset[r], jobs$delta[r]), jobs$key[r])), TRUE))
+
 cat(sprintf("Delta analysis (%s): %d conditions x %d deltas x 2 studies = %d jobs (%d to run), m = %d, workers = %d\n",
             MODE, length(conditions), length(CFG$DELTAS), nrow(jobs), length(todo), CFG$M, WORKERS))
+
 d_job <- function(r) {
   # parallel workers receive the functions used here, but not the custom mice
   # method "pmmx", which mice looks up by name: load the library there
@@ -103,9 +133,13 @@ d_job <- function(r) {
   saveRDS(res, raw_file(ds, dl))
   res$seconds
 }
+
 t0 <- proc.time()[["elapsed"]]
+
 if (length(todo)) invisible(par_lapply(todo, d_job, workers = WORKERS))
+
 cat(sprintf("  done in %.1f min\n", (proc.time()[["elapsed"]] - t0) / 60))
+
 get_res <- function(ds, dl) {
   r <- read_cached(raw_file(ds, dl), jobs$key[jobs$dataset == ds & jobs$delta == dl])
   if (is.null(r) && dl == 0) r <- res04(ds)                 # delta = 0: mice-PMM from 03/04
@@ -113,8 +147,10 @@ get_res <- function(ds, dl) {
   r
 }
 
-## ---- 2. Pool the studies with rma() for every condition and delta ------------------------
+## 2. Pool the studies with rma() for every condition and delta
+
 pooled <- list(); means <- list()
+
 for (cond in conditions) for (dl in CFG$DELTAS) {
   dss <- sprintf("%s_%s", STUDIES$key, cond)
   sr <- setNames(lapply(dss, get_res, dl = dl), STUDIES$study)
@@ -130,13 +166,18 @@ for (cond in conditions) for (dl in CFG$DELTAS) {
                shift_sd = (cm - colMeans(comp[[s]][, ITEMS])) / sdv * MNAR_DIRECTION[ITEM_CONSTRUCT])
   }))
 }
+
 D <- do.call(rbind, lapply(pooled, `[[`, "direct")); rownames(D) <- NULL
+
 IND <- do.call(rbind, lapply(pooled, `[[`, "indirect")); rownames(IND) <- NULL
+
 MS <- do.call(rbind, means)
+
 MS <- if (!is.null(MS)) aggregate(shift_sd ~ condition + delta + construct, MS, mean) else NULL
 
-## ---- 3. Tipping points ----------------------------------------------------------------------
+## 3. Tipping points
 # Interpolated tipping point on the z statistic between neighbouring grid values
+
 tip_one <- function(dl, z, sig, est, lo, hi, side) {
   i0 <- which(dl == 0); ord <- if (side > 0) which(dl > 0) else rev(which(dl < 0))
   res <- c(sig_grid = NA, sig_interp = NA, ci_grid = NA)
@@ -153,7 +194,9 @@ tip_one <- function(dl, z, sig, est, lo, hi, side) {
   }
   res
 }
+
 dr <- D[D$method == PRIMARY_RMA, ]
+
 TIPS <- do.call(rbind, lapply(split(dr, list(dr$condition, dr$component, dr$effect), drop = TRUE), function(d) {
   d <- d[order(d$delta), ]
   up <- tip_one(d$delta, d$est / d$se, d$p < .05, d$est, d$lo, d$hi, +1)
@@ -177,14 +220,19 @@ TIPS_I <- do.call(rbind, lapply(split(ir, list(ir$condition, ir$component, ir$sh
              ci_tip_mnar_direction = first(up, d$est[i0] < d$lo | d$est[i0] > d$hi),
              ci_tip_opposite = first(dn, d$est[i0] < d$lo | d$est[i0] > d$hi))
 }))
+
 TIPS <- TIPS[order(match(TIPS$condition, conditions), match(TIPS$component, COMPONENTS),
                    match(TIPS$effect, EFFECTS)), ]
+
 TIPS_I <- TIPS_I[order(match(TIPS_I$condition, conditions), match(TIPS_I$component, COMPONENTS),
                        match(TIPS_I$effect, names(SPECIFIC_INDIRECT))), ]
+
 rownames(TIPS) <- rownames(TIPS_I) <- NULL
 
-## ---- 4. Calibration against the complete data (toy data only) -------------------------------
+## 4. Calibration against the complete data (toy data only)
+
 CAL <- NULL
+
 if (!is.null(E04)) {
   com <- E04$direct[E04$direct$missing_method == "COM" & E04$direct$V_type == "ML", ]
   ce  <- com[com$method == "CE_z", c("component", "effect", "se")]; names(ce)[3] <- "se_com_ce"
@@ -206,7 +254,9 @@ if (!is.null(E04)) {
 # SDs signed in the MNAR direction, between the delta grid points). Under MNAR it
 # says how far the nonrespondents' values lie from what MAR predicts; under MCAR
 # and MAR it should be close to 0. Less noisy than the RMSD-based calibration.
+
 CAL_MEANS <- NULL
+
 if (!is.null(MS)) {
   cross0 <- function(dl, y) {
     o <- order(dl); dl <- dl[o]; y <- y[o]
@@ -221,9 +271,12 @@ if (!is.null(MS)) {
   rownames(CAL_MEANS) <- NULL
 }
 
-## ---- 5. Link to the sensitivity report: pooled estimate vs critical |beta| ---------------------
+## 5. Link to the sensitivity report: pooled estimate vs critical |beta|
+
 f_obs <- find_sensitivity_file("APIM_sensitivity_observed_critical.csv")
+
 CRIT <- NULL
+
 if (!is.null(f_obs)) {
   obs <- utils::read.csv(f_obs, stringsAsFactors = FALSE, encoding = "UTF-8")
   obs <- obs[obs$method == RMA_METHODS[[PRIMARY_RMA]], c("component", "effect", "crit_est")]
@@ -239,12 +292,15 @@ if (!is.null(f_obs)) {
   rownames(CRIT) <- NULL
 }
 
-## ---- 6. Export --------------------------------------------------------------------------------
+## 6. Export
+
 S <- list(mode = MODE, cfg = CFG, conditions = conditions, direct = D, indirect = IND, tips = TIPS,
           tips_indirect = TIPS_I, calibration = CAL, calibration_curve = CURVE, completed_shift = MS,
           calibration_means = CAL_MEANS,
           critical = CRIT, mnar_direction = MNAR_DIRECTION)
+
 saveRDS(S, file.path(OUT, "06_delta_results.rds"))
+
 sheets <- list(settings = data.frame(
   setting = c("mode", "deltas (item-SD units; + = hypothesised MNAR direction)", "MNAR direction",
               "m", "maxit", "imputation", "pooling"),
@@ -253,16 +309,26 @@ sheets <- list(settings = data.frame(
             "delta-adjusted mice-PMM (pmmx), item level, parcel predictors + auxiliaries",
             "lavaan APIMeM per completed dataset; Rubin within study; rma() RE (REML, z) across studies")),
   tipping_direct = TIPS, tipping_indirect = TIPS_I, pooled_direct = D, pooled_indirect = IND)
+
 if (!is.null(CAL)) { sheets$calibration <- CAL; sheets$calibration_curve <- CURVE }
+
 if (!is.null(MS)) sheets$completed_mean_shift <- MS
+
 if (!is.null(CAL_MEANS)) sheets$calibration_means <- CAL_MEANS
+
 if (!is.null(CRIT)) sheets$vs_critical_values <- CRIT
+
 write_xlsx_sheets(sheets, file.path(OUT, "06_delta_sensitivity.xlsx"))
+
 cat("Written:", file.path(OUT, c("06_delta_results.rds", "06_delta_sensitivity.xlsx")), sep = "\n")
+
 cat("\nTipping points of the effects significant under MAR (delta, item-SD units, MNAR direction):\n")
+
 print(TIPS[TIPS$significant_MAR, c("condition", "component", "effect", "est_MAR",
                                    "sig_tip_mnar_direction", "sig_tip_mnar_interp", "ci_tip_mnar_direction")],
       digits = 3, row.names = FALSE)
+
 if (!is.null(CAL)) { cat("\nCalibration: delta closest to the complete data\n"); print(CAL, digits = 3, row.names = FALSE) }
+
 if (!is.null(CAL_MEANS)) { cat("\nCalibration on the item means: delta at which the completed means equal the complete data\n")
   print(CAL_MEANS, digits = 3, row.names = FALSE) }

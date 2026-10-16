@@ -1,3 +1,8 @@
+
+## title: "APIM meta-analysis: individual-level missing and final pipeline"
+## author: "Anonymized"
+## date: "15-10-2026"
+
 # =============================================================================
 # 05_monte_carlo.R
 # Monte Carlo simulation of the item-level missing-data methods for the APIMeM
@@ -44,25 +49,37 @@
 
 source("00_functions.R")
 
-## ---- 0. Settings -------------------------------------------------------------------
+## 0. Settings
+
 MODE <- Sys.getenv("MC_MODE", "pilot")
+
 CFG <- switch(MODE,
   quick = list(NSIM = 2,   M = 3,  maxit = 5,  CHUNK = 1),
   pilot = list(NSIM = 50,  M = 10, maxit = 10, CHUNK = 5),
   full  = list(NSIM = 500, M = 10, maxit = 10, CHUNK = 10),
   stop("MC_MODE must be quick, pilot or full"))
+
 CFG$M <- as.integer(Sys.getenv("MC_M", CFG$M))
+
 CFG$NSIM <- as.integer(Sys.getenv("MC_NSIM", CFG$NSIM))
+
 METHODS <- strsplit(Sys.getenv("MC_METHODS", "COM,PRO_FIML,FIML_TS,mice_pmm,PMM_avg"), ",")[[1]]
 stopifnot(all(METHODS %in% METHODS_ALL), "COM" %in% METHODS)
+
 MASTER  <- 20261016
+
 WORKERS <- as.integer(Sys.getenv("WORKERS", "10"))
+
 OUT <- file.path("output", "mc", MODE); RAW <- file.path(OUT, "raw")
 dir.create(RAW, FALSE, TRUE)
+
 # The chunks in a mode folder must come from the same settings (only the number
 # of replications may grow), so results of other settings are never mixed in
+
 MC_SETTINGS <- list(M = CFG$M, maxit = CFG$maxit, CHUNK = CFG$CHUNK, methods = METHODS, master = MASTER)
+
 f_set <- file.path(OUT, "settings.rds")
+
 check_mc_settings <- function() {
   have <- length(list.files(RAW, pattern = "^cond\\d+_chunk\\d+\\.rds$")) > 0
   old <- if (file.exists(f_set)) readRDS(f_set) else NULL
@@ -73,12 +90,17 @@ check_mc_settings <- function() {
 }
 
 DESIGN <- expand.grid(rate = RATES, mechanism = MECHANISMS, stringsAsFactors = FALSE)[, 2:1]
+
 DESIGN$condition <- seq_len(nrow(DESIGN))
+
 DESIGN$label <- sprintf("%s_%02dpct", DESIGN$mechanism, round(100 * DESIGN$rate))
+
 POP <- toy_population(file.path("data", "population_values.rds"))
+
 SIGMA_T <- toy_implied_sigma()
 
-## ---- 1. Random-number streams ----------------------------------------------------------
+## 1. Random-number streams
+
 rep_seeds <- function(cond) {
   with_rng(c("L'Ecuyer-CMRG", "Inversion", "Rejection"), MASTER + cond, {   # restores the caller's generator
     s <- .Random.seed; out <- vector("list", CFG$NSIM)
@@ -87,7 +109,8 @@ rep_seeds <- function(cond) {
   })
 }
 
-## ---- 2. One replication --------------------------------------------------------------------
+## 2. One replication
+
 one_rep <- function(cond_row, r, seed) {
   if (!exists("mice.impute.catx", envir = globalenv()))      # custom mice methods (looked up by name)
     sys.source("00_functions.R", envir = globalenv())
@@ -132,7 +155,8 @@ one_rep <- function(cond_row, r, seed) {
                                     error = paste(errs, collapse = " | ")))
 }
 
-## ---- 3. Run a condition in check-pointed chunks ------------------------------------------------
+## 3. Run a condition in check-pointed chunks
+
 run_condition <- function(cond) {
   cr <- DESIGN[cond, ]; seeds <- rep_seeds(cond)
   chunks <- split(seq_len(CFG$NSIM), ceiling(seq_len(CFG$NSIM) / CFG$CHUNK))
@@ -152,8 +176,10 @@ run_condition <- function(cond) {
   cat(sprintf("  done: %.1f s per replication\n", mean(secs)))
 }
 
-## ---- 4. Summaries ------------------------------------------------------------------------------
+## 4. Summaries
+
 mcse_p <- function(p, n) sqrt(p * (1 - p) / n)
+
 summarise_mc <- function() {
   files <- list.files(RAW, pattern = "^cond\\d+_chunk\\d+\\.rds$", full.names = TRUE)
   if (!length(files)) stop("No raw results in ", RAW)
@@ -205,8 +231,10 @@ summarise_mc <- function() {
   invisible(S)
 }
 
-## ---- 5. Main ------------------------------------------------------------------------------------
+## 5. Main
+
 args <- commandArgs(trailingOnly = TRUE)
+
 if (!length(args) || args[1] != "summarise") {
   check_mc_settings()
   conds <- if (length(args)) as.integer(args) else DESIGN$condition
@@ -216,4 +244,5 @@ if (!length(args) || args[1] != "summarise") {
   for (cond in conds) run_condition(cond)
   cat(sprintf("Elapsed: %.1f min\n", (proc.time()[["elapsed"]] - t0) / 60))
 }
+
 if (!length(args) || args[1] == "summarise") S <- summarise_mc()

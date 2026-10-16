@@ -1,3 +1,8 @@
+
+## title: "APIM meta-analysis: individual-level missing and final pipeline"
+## author: "Anonymized"
+## date: "15-10-2026"
+
 # =============================================================================
 # 03_impute_missing_data.R
 # Impute the 18 incomplete datasets from 02 at the ITEM level (m = 20):
@@ -44,18 +49,30 @@
 
 source("00_functions.R")
 
-## ---- 0. Settings ---------------------------------------------------------------
+## 0. Settings
+
 IN_RDS     <- file.path("data", "amputed", "amputed_datasets.rds")
+
 OUT_DATA   <- file.path("data", "imputed")
+
 OUT_LOG    <- file.path("output", "imputations")
+
 RAW        <- file.path(OUT_LOG, "raw")
+
 M          <- as.integer(Sys.getenv("M_IMP", "20"))
+
 WORKERS    <- as.integer(Sys.getenv("WORKERS", "15"))
+
 METHODS    <- strsplit(Sys.getenv("METHODS", "mice_pmm,mice_cat"), ",")[[1]]
+
 WRITE_XLSX <- FALSE                 # stacked .xlsx copies (about 1 MB each)
+
 SEED       <- 20261013
+
 SETTINGS   <- list(maxit_pmm = 20, donors = 5L, maxit_cat = 10, maxit_heck = 10, pred_set = PRED_SET)
+
 stopifnot(all(METHODS %in% IMPUTATION_METHODS))
+
 dir.create(OUT_DATA, FALSE, TRUE); dir.create(RAW, FALSE, TRUE)
 
 if (!file.exists(IN_RDS)) source("02_ampute_data.R", local = new.env())
@@ -64,15 +81,19 @@ grid <- A$grid; datasets <- grid$dataset
 
 # Seed of dataset i and method j (also used by 06 for delta-adjusted mice-PMM,
 # so that delta = 0 reproduces the mice-PMM imputations)
+
 imp_seed <- function(i, method) SEED + 1000 * i + match(method, IMPUTATION_METHODS)
+
 # Cache key of dataset i and method j: the amputed data, m, the settings, the
 # seed and the generator. A checkpoint is reused only for the same key, so
 # imputations of other amputed data (e.g. after 01/02 were rerun) are redone.
+
 imp_key <- function(i, method)
   cache_key("impute", method, M, SETTINGS, imp_seed(i, method), RNG_IMPUTATION,
             A$amputed[[datasets[i]]][, c(ID_VAR, ITEMS, AUX_VARS, IV_VARS)])
 
-## ---- 1. One job = one dataset x all methods ------------------------------------------
+## 1. One job = one dataset x all methods
+
 impute_job <- function(i) {
   if (!exists("mice.impute.heckoprob", envir = globalenv())) sys.source("00_functions.R", envir = globalenv())
   nm <- datasets[i]; f_raw <- file.path(RAW, paste0(nm, ".rds"))
@@ -128,10 +149,12 @@ out <- par_lapply(seq_along(datasets), function(i) {
                                 paste(round(r$log$seconds), collapse = "/")))
   r
 }, workers = WORKERS)
+
 names(out) <- datasets
+
 cat(sprintf("Total imputation time: %.1f min\n", (proc.time()[["elapsed"]] - t_all) / 60))
 
-## ---- 2. Save ------------------------------------------------------------------------------
+## 2. Save
 imputations <- lapply(out, function(o) o$imputations[intersect(IMPUTATION_METHODS, names(o$imputations))])
 saveRDS(list(imputations = imputations, settings = SETTINGS, M = M, seed = SEED,
              methods = METHODS, grid = grid),
@@ -145,27 +168,35 @@ for (nm in datasets) for (meth in names(imputations[[nm]])) {
 }
 
 log_tab <- do.call(rbind, lapply(out, `[[`, "log")); rownames(log_tab) <- NULL
+
 log_tab <- log_tab[order(match(log_tab$dataset, datasets), match(log_tab$method, IMPUTATION_METHODS)), ]
+
 qual_tab <- do.call(rbind, lapply(names(out), function(nm) do.call(rbind, lapply(names(out[[nm]]$quality),
   function(meth) cbind(dataset = nm, method = meth, out[[nm]]$quality[[meth]])))))
+
 iv_tab <- do.call(rbind, lapply(out, `[[`, "iv")); rownames(iv_tab) <- NULL
+
 iv_wide <- reshape(iv_tab, idvar = "item", timevar = "dataset", direction = "wide")
+
 names(iv_wide) <- sub("z_iv\\.", "", names(iv_wide)); rownames(iv_wide) <- NULL
+
 settings_tab <- data.frame(
   setting = c("m", names(SETTINGS), "seed", "R", "mice", "lavaan"),
   value = c(M, vapply(SETTINGS, as.character, ""), SEED, R.version.string,
             as.character(utils::packageVersion("mice")), as.character(utils::packageVersion("lavaan"))))
+
 spec_tab <- data.frame(item = ITEMS, scale = ITEM_SCALE, partner = ITEM_MEMBER,
                        predictors = vapply(ITEMS, function(it) {
                          v <- ITEM_VAR[[it]]
                          paste(c(setdiff(ITEMS[ITEM_VAR == v], it), setdiff(unname(SCALES), SCALES[[v]]),
                                  AUX_VARS), collapse = ", ") }, ""),
                        heckman_selection_only = paste0("iv_", ITEM_MEMBER), row.names = NULL)
+
 write_xlsx_sheets(list(log = log_tab, quality_by_item = qual_tab, imputation_model = spec_tab,
                        instrument_relevance_z = iv_wide, settings = settings_tab),
                   file.path(OUT_LOG, "imputation_log.xlsx"))
 
-## ---- 3. Checks ------------------------------------------------------------------------------
+## 3. Checks
 for (nm in datasets) for (meth in names(imputations[[nm]])) {
   a <- A$amputed[[nm]]; obs <- !is.na(a[, ITEMS])
   for (d in imputations[[nm]][[meth]]) {
@@ -174,9 +205,13 @@ for (nm in datasets) for (meth in names(imputations[[nm]])) {
               identical(d[, c(ID_VAR, AUX_VARS, IV_VARS)], a[, c(ID_VAR, AUX_VARS, IV_VARS)]))
   }
 }
+
 cat("Checks passed: no missing values left, every imputed value in 1-5, observed values,",
     "auxiliaries and instruments unchanged.\n\n")
+
 print(log_tab[, c("dataset", "method", "seconds", "max_psrf", "nrmse", "std_bias_mnar_direction", "tvd")],
       digits = 3, row.names = FALSE)
+
 cat("\nInstrument relevance (z of the partner's instrument in the response model), mean |z| by dataset:\n")
+
 print(round(colMeans(abs(iv_wide[, -1]), na.rm = TRUE), 1))

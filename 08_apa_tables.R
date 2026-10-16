@@ -1,3 +1,8 @@
+
+## title: "APIM meta-analysis: individual-level missing and final pipeline"
+## author: "Anonymized"
+## date: "15-10-2026"
+
 # =============================================================================
 # 08_apa_tables.R
 # APA-style tables (Word) giving an overview of the missing-data sensitivity
@@ -44,64 +49,101 @@
 
 source("00_functions.R")
 
-## ---- 0. Inputs -----------------------------------------------------------------------------
+## 0. Inputs
+
 OUT <- file.path("output", "report"); dir.create(OUT, FALSE, TRUE)
+
 OUT_DOCX <- file.path(OUT, "08_missing_data_sensitivity_tables.docx")
+
 A <- readRDS(file.path("data", "amputed", "amputed_datasets.rds"))
+
 E <- readRDS(file.path("output", "evaluation", "04_evaluation_results.rds"))
+
 f_log <- file.path("output", "imputations", "imputation_log.xlsx")
+
 LOG <- if (file.exists(f_log)) openxlsx::read.xlsx(f_log, sheet = "log") else NULL
+
 pick <- function(dir, file, modes) {
   for (md in modes) { f <- file.path("output", dir, md, file); if (file.exists(f)) return(f) }
   NULL
 }
+
 f_mc <- pick("mc", "mc_summary.rds", c("full", "pilot"))        # quick mode = smoke test, not tabled
+
 MC  <- if (!is.null(f_mc)) readRDS(f_mc) else NULL
+
 f_se <- pick("sensitivity", "06_delta_results.rds", c("full", "quick"))
+
 S06 <- if (!is.null(f_se)) readRDS(f_se) else NULL
+
 f_pw <- file.path("output", "power", "07_power_results.rds")
+
 P   <- if (file.exists(f_pw)) readRDS(f_pw) else NULL
+
 DEC <- choose_method(E, MC)
+
 chosen <- DEC$chosen
 
 grid <- A$grid
+
 conds <- E$conditions
+
 cond_info <- E$cond_info[match(conds, E$cond_info$condition), ]
+
 METH <- intersect(METHODS_ALL, setdiff(E$methods, "COM"))
+
 focal <- intersect(c("mice_pmm", "FIML_TS"), METH)
+
 spec <- names(SPECIFIC_INDIRECT)
+
 rate_lab <- function(r) sprintf("%d%%", round(100 * r))
+
 cond_spans <- function(first = c(" " = 1L)) c(first, MCAR = 3L, MAR = 3L, MNAR = 3L)
+
 cond_labels <- rep(c("5%", "10%", "15%"), 3)
+
 star <- function(est, p, d = 2) paste0(fmt(est, d), ifelse(!is.na(p) & p < .05, "*", ""))
+
 mde_fmt <- function(v, d = 2, max_lab = "> 1.00") ifelse(is.na(v), max_lab, fmt(v, d))
+
 mech_txt <- paste0("MCAR = missing completely at random; MAR = missingness depends on the always-observed ",
                    "auxiliaries; MNAR = missingness depends on the item value itself (higher X and M, lower Y) ",
                    "and on an instrument.")
+
 rma_txt <- paste0("Pooled across the two studies with rma(): per study, the Partner 1 and Partner 2 estimates of ",
                   "each effect were combined (GLS, using their lavaan sampling covariance matrix), and the study ",
                   "composites were pooled with a random-effects model (REML, Wald z), the specification chosen ",
                   "on the basis of the sensitivity report.")
+
 meth_abbr <- paste0("COM = complete data (the same toy data before deletion); PRO-FIML = proration (at least 75% ",
                     "of the items) and FIML on the scale scores, the default of apim_meta_analysis.R; FIML-TS = ",
                     "two-stage item-level FIML with the auxiliaries; PMM and CAT = item-level multiple imputation ",
                     "(predictive mean matching; proportional-odds model; m = 20) pooled within each study with ",
                     "Rubin's rules; PMM-avg = the 20 PMM datasets averaged into one dataset and analysed once ",
                     "(shown only to illustrate why this is not done).")
+
 meth_short <- paste0("COM = complete data; PRO-FIML = proration and FIML on the scale scores; FIML-TS = two-stage ",
                      "item-level FIML with the auxiliaries; PMM, CAT = item-level multiple imputation (m = 20) with ",
                      "Rubin's rules; PMM-avg = the 20 PMM datasets averaged into one (illustration only).")
+
 mech_short <- paste0("MCAR = missing completely at random; MAR = missingness depends on the auxiliaries; MNAR = it ",
                      "depends on the item value itself.")
+
 prim <- function(d) d[d$method == PRIMARY_RMA & d$V_type == PRIMARY_V, ]
+
 D_all <- prim(E$direct)
+
 I_all <- E$indirect[E$indirect$V_type == PRIMARY_V, ]
+
 tables <- list()
+
 add <- function(title, ft, part = NULL, supp = FALSE)
   tables[[length(tables) + 1]] <<- list(title = title, ft = ft, part = part, supp = supp)
+
 skipped <- character(0)
 
-## =========================== A. Missing data and imputation ==============================
+## A. Missing data and imputation
+
 ms <- do.call(rbind, lapply(seq_len(nrow(grid)), function(i) {
   s <- missing_summary(A$amputed[[i]]); g <- grid[i, ]
   val <- function(v) s$pct_missing[s$variable == v]
@@ -109,19 +151,26 @@ ms <- do.call(rbind, lapply(seq_len(nrow(grid)), function(i) {
              dyads = val("Dyads with any missing item"),
              scales = val("Scale scores not computable by proration (< 75% items)"))
 }))
+
 sel <- do.call(rbind, lapply(seq_len(nrow(grid)), function(i)
   cbind(condition = grid$condition[i], mechanism_regression(A$complete[[grid$study[i]]], A$amputed[[i]]))))
+
 sel <- aggregate(log_odds ~ condition + term, sel, mean)
+
 t1 <- data.frame(cond = rate_lab(cond_info$rate), stringsAsFactors = FALSE)
+
 for (k in STUDIES$key) {
   x <- ms[ms$study == k, ][match(conds, ms$condition[ms$study == k]), ]
   t1[[paste0(k, "_c")]] <- sprintf("%.1f", x$cells)
   t1[[paste0(k, "_d")]] <- sprintf("%.1f", x$dyads)
   t1[[paste0(k, "_s")]] <- sprintf("%.1f", x$scales)
 }
+
 for (tm in c("z_own", "z_aux", "z_iv"))
   t1[[tm]] <- fmt(sel$log_odds[sel$term == tm][match(conds, sel$condition[sel$term == tm])], 2)
+
 g1 <- grouped_body(t1, cond_info$mechanism)
+
 add("Item-Level Missing Data in the 18 Incomplete Toy Datasets", apa_table(g1$body,
   labels = c("Mechanism / rate", rep(c("Item cells", "Dyads", "Scale scores"), 2), "Own value", "Auxiliary", "Instrument"),
   spans = list(c(" " = 1L, setNames(c(3L, 3L), sprintf("%s (N = %d dyads)", STUDIES$study, STUDIES$n)),
@@ -169,7 +218,8 @@ if (!is.null(LOG)) {
     first_col_width = 2.6, col_width = 0.68))
 } else skipped <- c(skipped, "imputation quality (imputation log of 03 not found)")
 
-## ======================= B. Missing-data methods in the meta-analysis ======================
+## B. Missing-data methods in the meta-analysis
+
 if (!is.null(DEC$criteria)) {
   cr <- DEC$criteria; is_mc <- !is.na(cr$coverage_mcar_mar[1])
   t3 <- data.frame(
@@ -199,9 +249,11 @@ if (!is.null(DEC$criteria)) {
 }
 
 key <- E$key[E$key$V_type == PRIMARY_V, ]
+
 ci_ag <- aggregate(cbind(joint = joint_sig_agree) ~ condition + missing_method + component,
                    E$compare_indirect[E$compare_indirect$V_type == PRIMARY_V &
                                         E$compare_indirect$effect %in% spec, ], sum)
+
 summary_table <- function(cmp) {
   panels <- list("Root mean square deviation from the complete data (SE units)" = function(x) fmt(x$rmsd_std, 2),
                  "SE inflation relative to the complete data" = function(x) fmt(x$mean_se_ratio_ce, 2),
@@ -228,7 +280,9 @@ summary_table <- function(cmp) {
                   "at \u{03b1} = .05; specific indirect effects: joint significance. ", meth_short, " ", mech_short),
     first_col_width = 3.0, col_width = 0.62, size = 9)
 }
+
 add("Pooled Effects Relative to the Complete-Data Analysis: Uncorrected Paths", summary_table("uncorrected"))
+
 add("Pooled Effects Relative to the Complete-Data Analysis: Paths Corrected for Unreliability",
     summary_table("corrected"))
 
@@ -262,7 +316,9 @@ for (mt in focal) add(sprintf("Pooled Direct Effects by Missing-Data Condition: 
 
 ind_sig <- function(x, d) if (!nrow(x)) "\u{2014}" else
   paste0(fmt(x$est, d), ifelse(isTRUE(x$joint_sig), "*", ""), ifelse(isTRUE(x$mc_sig), "\u{2020}", ""))
+
 rows <- NULL; grp <- NULL
+
 for (cmp in COMPONENTS) for (mt in focal) {
   com <- I_all[I_all$missing_method == "COM" & I_all$component == cmp, ]
   blk <- data.frame(e = spec, stringsAsFactors = FALSE)
@@ -273,7 +329,9 @@ for (cmp in COMPONENTS) for (mt in focal) {
   }
   rows <- rbind(rows, blk); grp <- c(grp, rep(sprintf("%s: %s", COMP_LAB[[cmp]], METHOD_SHORT[[mt]]), length(spec)))
 }
+
 g8 <- grouped_body(rows, grp)
+
 add("Pooled Specific Indirect Effects by Missing-Data Condition", apa_table(g8$body,
   labels = c("Indirect effect", "COM", cond_labels), spans = list(cond_spans(c(" " = 1L, " " = 1L))),
   group_rows = g8$group_rows,
@@ -284,7 +342,8 @@ add("Pooled Specific Indirect Effects by Missing-Data Condition", apa_table(g8$b
                 "Rubin's rules); FIML-TS = two-stage FIML. ", mech_short),
   first_col_width = 1.4, col_width = 0.72, size = 9))
 
-## ================== C. Power sensitivity: the sensitivity report under missing data ==================
+## C. Power sensitivity: the sensitivity report under missing data
+
 if (!is.null(P)) {
   pm <- if (chosen %in% P$inflation$missing_method) chosen else focal[1]
   pm_lab <- METHOD_LABELS[[pm]]
@@ -296,7 +355,7 @@ if (!is.null(P)) {
                                       paste(sub("_", " ", sub("pct", "%", P$exact_conditions)), collapse = ", "),
                                       paste(unique(sprintf("%.1f", 100 * range(appr$mean_relative_difference))),
                                             collapse = "\u{2013}")) else ""
-  ## Table: critical values ----
+  ## Table: critical values
   cr9 <- P$critical[P$critical$missing_method == pm & P$critical$method == PRIMARY_RMA, ]
   rows <- NULL; grp <- NULL
   for (cmp in COMPONENTS) {
@@ -322,7 +381,7 @@ if (!is.null(P)) {
     first_col_width = 1.2, col_width = 0.68), j = 2:3, width = 0.86),
     part = "C. Power Sensitivity: The Sensitivity Report Under Missing Data")
 
-  ## Table: MDE of the direct effects (report values x inflation factor) ----
+  ## Table: MDE of the direct effects (report values x inflation factor)
   rs <- P$report_summary[P$report_summary$method_code == PRIMARY_RMA, ]
   hl <- P$het_levels
   infl <- P$inflation[P$inflation$missing_method == pm, ]
@@ -355,7 +414,7 @@ if (!is.null(P)) {
                     " > 1.00 = not reached in the range evaluated in the report. ", mech_txt),
       first_col_width = 1.1, col_width = 0.56, size = 9))
 
-  ## Table: MDE of the specific indirect effects ----
+  ## Table: MDE of the specific indirect effects
   ri <- P$rescaled_indirect[P$rescaled_indirect$missing_method == pm & P$rescaled_indirect$method_code == PRIMARY_RMA, ]
   rows <- NULL; grp <- NULL
   for (cmp in COMPONENTS) {
@@ -385,7 +444,8 @@ if (!is.null(P)) {
       first_col_width = 1.3, col_width = 0.56, size = 9))
 } else skipped <- c(skipped, "power sensitivity (run 07_power_sensitivity.R)")
 
-## ======================== D. Departures from MAR (delta adjustment) ========================
+## D. Departures from MAR (delta adjustment)
+
 if (!is.null(S06)) {
   max_d <- max(S06$cfg$DELTAS)
   rows <- NULL; grp <- NULL
@@ -452,7 +512,8 @@ if (!is.null(S06)) {
   }
 } else skipped <- c(skipped, "delta adjustment (run 06_delta_sensitivity.R)")
 
-## ============================== E. Monte Carlo simulation ==============================
+## E. Monte Carlo simulation
+
 if (!is.null(MC)) {
   bm <- MC$by_method[MC$by_method$method == PRIMARY_RMA, ]
   mcm <- intersect(METHODS_ALL[-1], unique(bm$missing_method))
@@ -487,7 +548,7 @@ if (!is.null(MC)) {
   }
 } else skipped <- c(skipped, "Monte Carlo (run 05_monte_carlo.R in pilot or full mode)")
 
-## ================================= Supplementary tables =================================
+## Supplementary tables
 rel <- E$reliability
 s1_conds <- intersect(c("MAR_15pct", "MNAR_15pct"), conds)
 s1_meth <- intersect(c("PRO_FIML", "FIML_TS", "mice_pmm", "PMM_avg"), METH)
@@ -591,7 +652,8 @@ if (!is.null(P) && nrow(P$exact_vs_rescaled)) {
     first_col_width = 1.2, col_width = 0.72, size = 9), supp = TRUE)
 }
 
-## ---- Number the tables and write the document ---------------------------------------------------
+## Number the tables and write the document
+
 heading_xml <- function(text, page_break = TRUE, font = APA_FONT) {
   txt <- gsub("&", "&amp;", text, fixed = TRUE)
   sprintf(paste0('<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:pPr><w:keepNext/>',
@@ -600,12 +662,15 @@ heading_xml <- function(text, page_break = TRUE, font = APA_FONT) {
                  '</w:rPr><w:t xml:space="preserve">%3$s</w:t></w:r></w:p>'),
           if (page_break) "<w:pageBreakBefore/>" else "", font, txt)
 }
+
 num <- 0; snum <- 0
 for (i in seq_along(tables)) {
   if (tables[[i]]$supp) { snum <- snum + 1; tables[[i]]$number <- paste0("S", snum) }
   else { num <- num + 1; tables[[i]]$number <- as.character(num) }
 }
+
 doc <- new_landscape_doc()
+
 intro <- c(
   "APIM Meta-Analysis With Item-Level Missing Data: Overview of the Sensitivity Results (Toy Data)",
   sprintf(paste0("Two dyadic toy studies (N = %d and %d dyads; 24 Likert items each) were made incomplete under MCAR, MAR ",
@@ -623,7 +688,12 @@ for (tb in tables) {
   if (!is.null(tb$part)) doc <- officer::body_add_xml(doc, heading_xml(tb$part))
   doc <- add_apa_table(doc, tb$number, tb$title, tb$ft, new_page = is.null(tb$part))
 }
+
 print(doc, target = OUT_DOCX)
+
 cat("Written:", OUT_DOCX, sprintf("(%d tables)\n", length(tables)))
+
 cat("Method decision:", DEC$basis, "->", METHOD_LABELS[[chosen]], "\n")
+
 if (length(skipped)) cat("Not included:", paste(skipped, collapse = "; "), "\n")
+

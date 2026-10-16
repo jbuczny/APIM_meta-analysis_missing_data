@@ -1,3 +1,8 @@
+
+## title: "APIM meta-analysis: individual-level missing and final pipeline"
+## author: "Anonymized"
+## date: "15-10-2026"
+
 # =============================================================================
 # 02_ampute_data.R
 # Data processing: create the 18 incomplete versions of the two toy datasets
@@ -48,31 +53,44 @@
 
 source("00_functions.R")
 
-## ---- 0. Settings ----------------------------------------------------------------
+## 0. Settings
+
 IN_DIR  <- "data"
+
 OUT_DIR <- file.path("data", "amputed")
+
 SEED    <- 20261012
+
 AMP     <- AMPUTE_DEFAULTS          # strength 1, MAR direction -1, instrument strength 1
+
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
-## ---- 1. Read the complete toy data ---------------------------------------------------
+## 1. Read the complete toy data
+
 files <- file.path(IN_DIR, sprintf("toy_%s_complete.csv", STUDIES$key))
+
 if (!all(file.exists(files))) source("01_complete_toy_data.R", local = new.env())
+
 dat0 <- setNames(lapply(files, utils::read.csv, stringsAsFactors = FALSE), STUDIES$key)
+
 for (k in STUDIES$key) {
   stopifnot(all(c(ID_VAR, ITEMS) %in% names(dat0[[k]])), !anyNA(dat0[[k]][, ITEMS]),
             all(as.matrix(dat0[[k]][, ITEMS]) %in% ITEM_VALUES))
   cat(sprintf("%s: %d dyads, %d items, no missing values\n", k, nrow(dat0[[k]]), length(ITEMS)))
 }
 
-## ---- 2. Add the auxiliaries and the instruments, draw the uniform numbers -----------
+## 2. Add the auxiliaries and the instruments, draw the uniform numbers
+
 set.seed(SEED)
+
 complete <- list(); U <- list()
+
 for (k in STUDIES$key) {
   complete[[k]] <- add_aux_iv(dat0[[k]])
   U[[k]] <- matrix(runif(nrow(complete[[k]]) * length(ITEMS)), ncol = length(ITEMS),
                    dimnames = list(NULL, ITEMS))          # common random numbers (9 datasets)
 }
+
 aux_check <- do.call(rbind, lapply(STUDIES$key, function(k) {
   S <- scale_scores(complete[[k]]); d <- complete[[k]]
   do.call(rbind, lapply(c(AUX_VARS, IV_VARS), function(v) data.frame(
@@ -80,15 +98,22 @@ aux_check <- do.call(rbind, lapply(STUDIES$key, function(k) {
     t(setNames(round(stats::cor(d[[v]], S)[1, ], 3), paste0("r_", VARS))),
     R2_on_scale_scores = round(summary(stats::lm(d[[v]] ~ S))$r.squared, 3))))
 }))
+
 cat("\nAuxiliaries and instruments: correlations with the scale scores\n")
+
 print(aux_check, row.names = FALSE)
 
-## ---- 3. Amputation ------------------------------------------------------------------------
+## 3. Amputation
+
 grid <- expand.grid(rate = RATES, mechanism = MECHANISMS, study = STUDIES$key,
                     stringsAsFactors = FALSE)[, 3:1]
+
 grid$condition <- sprintf("%s_%02dpct", grid$mechanism, round(100 * grid$rate))
+
 grid$dataset   <- sprintf("%s_%s", grid$study, grid$condition)
+
 grid$n_dyads   <- STUDIES$n[match(grid$study, STUDIES$key)]
+
 grid$n_missing_per_item <- round(grid$rate * grid$n_dyads)
 
 amputed <- setNames(lapply(seq_len(nrow(grid)), function(i)
@@ -97,6 +122,7 @@ amputed <- setNames(lapply(seq_len(nrow(grid)), function(i)
                iv_strength = AMP$iv_strength)), grid$dataset)
 
 ## Checks: exact counts, untouched columns, observed values unchanged, nesting
+
 for (i in seq_len(nrow(grid))) {
   a <- amputed[[i]]; cm <- complete[[grid$study[i]]]
   stopifnot(all(colSums(is.na(a[, ITEMS])) == grid$n_missing_per_item[i]),
@@ -104,43 +130,57 @@ for (i in seq_len(nrow(grid))) {
             identical(a[, c(ID_VAR, AUX_VARS, IV_VARS)], cm[, c(ID_VAR, AUX_VARS, IV_VARS)]),
             all(is.na(a[, ITEMS]) | a[, ITEMS] == cm[, ITEMS]))
 }
+
 for (k in STUDIES$key) for (mch in MECHANISMS) {
   ds <- grid$dataset[grid$study == k & grid$mechanism == mch]
   for (j in 2:length(ds))
     stopifnot(all(is.na(amputed[[ds[j]]][, ITEMS])[is.na(amputed[[ds[j - 1]]][, ITEMS])]))
 }
+
 cat("\nAll 18 datasets: exact missing counts per item, nesting across rates and untouched",
     "auxiliaries/instruments verified.\n")
 
-## ---- 4. Summaries -----------------------------------------------------------------------------
+## 4. Summaries
+
 miss_long <- do.call(rbind, lapply(names(amputed), function(nm)
   cbind(dataset = nm, missing_summary(amputed[[nm]]))))
+
 miss_wide <- reshape(miss_long[, c("dataset", "variable", "pct_missing")], idvar = "variable",
                      timevar = "dataset", direction = "wide")
+
 names(miss_wide) <- sub("pct_missing\\.", "", names(miss_wide)); rownames(miss_wide) <- NULL
 
 mech_long <- do.call(rbind, lapply(seq_len(nrow(grid)), function(i)
   cbind(dataset = grid$dataset[i], mechanism_check(complete[[grid$study[i]]], amputed[[i]]))))
+
 mech_avg <- do.call(rbind, lapply(split(mech_long, mech_long$dataset), function(d) data.frame(
   dataset = d$dataset[1],
   smd_own_value_in_mnar_direction = mean(d$smd_own_value * d$mnar_direction),
   smd_aux_composite = mean(d$smd_aux_composite), smd_iv = mean(d$smd_iv),
   smd_own_scale_score_in_mnar_direction = mean(d$smd_own_scale_score * d$mnar_direction))))
+
 mech_avg <- mech_avg[match(grid$dataset, mech_avg$dataset), ]; rownames(mech_avg) <- NULL
+
 mech_reg <- do.call(rbind, lapply(seq_len(nrow(grid)), function(i) {
   r <- mechanism_regression(complete[[grid$study[i]]], amputed[[i]])
   data.frame(dataset = grid$dataset[i], study = grid$study[i], mechanism = grid$mechanism[i],
              rate = grid$rate[i], term = r$term, log_odds = r$log_odds, se = r$se)
 }))
+
 mech_reg_wide <- reshape(transform(mech_reg, value = sprintf("%.2f (%.2f)", log_odds, se))[
   , c("dataset", "term", "value")], idvar = "dataset", timevar = "term", direction = "wide")
+
 names(mech_reg_wide) <- c("dataset", "own value (MNAR direction) | aux, iv",
                           "aux composite | own, iv", "instrument | own, aux")
+
 rownames(mech_reg_wide) <- NULL
+
 cat("\nRealised selection model, log-odds per SD (SE), stacked over the 24 items:\n")
+
 print(mech_reg_wide, row.names = FALSE)
 
-## ---- 5. Write the datasets ------------------------------------------------------------------
+## 5. Write the datasets
+
 cb <- data.frame(
   variable = c(ID_VAR, ITEMS, AUX_VARS, IV_VARS),
   description = c("Dyad identifier",
@@ -178,24 +218,30 @@ for (nm in names(amputed)) {
                          mechanism_check = mech_long[mech_long$dataset == nm, -1]),
                     file.path(OUT_DIR, paste0(nm, ".xlsx")))
 }
+
 for (k in STUDIES$key) {
   utils::write.csv(complete[[k]], file.path(OUT_DIR, sprintf("%s_complete_with_aux.csv", k)), row.names = FALSE)
   write_xlsx_sheets(list(data = complete[[k]], codebook = cb, aux_iv_check = aux_check[aux_check$study == k, ]),
                     file.path(OUT_DIR, sprintf("%s_complete_with_aux.xlsx", k)))
 }
+
 write_xlsx_sheets(list(datasets = grid, settings = mechanism_info, codebook = cb,
                        missingness_pct = miss_wide, missingness_long = miss_long,
                        selection_model = mech_reg_wide, selection_model_long = mech_reg,
                        smd_by_dataset = mech_avg, smd_by_item = mech_long, aux_iv_check = aux_check),
                   file.path(OUT_DIR, "amputation_summary.xlsx"))
+
 amp_clean <- lapply(amputed, function(a) { attr(a, "amputation") <- NULL; a })
+
 saveRDS(list(complete = complete, amputed = amp_clean, grid = grid, settings = AMP,
              mnar_direction = MNAR_DIRECTION, seed = SEED, U = U),
         file.path(OUT_DIR, "amputed_datasets.rds"))
 
 cat("\nWritten to", OUT_DIR, ":", length(list.files(OUT_DIR, "_(MCAR|MAR|MNAR)_.*\\.csv$")),
     "incomplete datasets (.csv and .xlsx), the complete data with auxiliaries, the summary and the .rds\n")
+
 summ <- miss_long[miss_long$variable %in% c("ALL item cells", "Dyads with any missing item",
                                             "Scale scores not computable by proration (< 75% items)"), ]
+
 print(reshape(summ[, c("dataset", "variable", "pct_missing")], idvar = "dataset", timevar = "variable",
               direction = "wide"), row.names = FALSE)
